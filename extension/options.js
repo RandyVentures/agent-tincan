@@ -42,6 +42,7 @@ const STATUS = {
 export function renderOptions({ document, permissions }) {
   const list = document.getElementById('sites');
   const rows = new Map();
+  let refreshGeneration = 0;
 
   function row(site, label) {
     const li = document.createElement('li');
@@ -51,8 +52,13 @@ export function renderOptions({ document, permissions }) {
     name.textContent = label;
     const status = document.createElement('span');
     status.className = 'status';
+    status.setAttribute('id', `site-status-${site}`);
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    status.setAttribute('aria-atomic', 'true');
     const button = document.createElement('button');
     button.textContent = 'Grant';
+    button.setAttribute('aria-describedby', `site-status-${site}`);
     button.addEventListener('click', () => {
       button.disabled = true;
       let asked;
@@ -82,19 +88,25 @@ export function renderOptions({ document, permissions }) {
   }
 
   async function refresh() {
-    for (const s of await siteStates(permissions)) {
+    const generation = ++refreshGeneration;
+    const states = await siteStates(permissions);
+    // Permission reads can finish out of order after a grant or revocation.
+    if (generation !== refreshGeneration) return;
+    for (const s of states) {
       let r = rows.get(s.site);
       if (!r) {
         r = row(s.site, s.label);
         rows.set(s.site, r);
+        list.append(r.li);
       }
       const st = STATUS[s.granted ? 'granted' : s.partial ? 'partial' : 'none'];
       r.status.textContent = r.error && !s.granted ? r.error : st.text;
       r.status.className = r.error && !s.granted ? 'status error' : st.className;
+      r.status.setAttribute('aria-label', `${s.label}: ${r.status.textContent}`);
       r.button.textContent = st.button;
+      r.button.setAttribute('aria-label', `${st.button} for ${s.label}`);
       r.button.hidden = s.granted;
     }
-    list.replaceChildren(...[...rows.values()].map((r) => r.li));
   }
 
   // A change made elsewhere (chrome://extensions site access) shows here

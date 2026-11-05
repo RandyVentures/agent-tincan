@@ -234,3 +234,59 @@ test('the options page is CSP-safe: no inline script, no main-world code', () =>
     assert.ok(!banned.test(js), `options.js matches ${banned}`);
   }
 });
+
+test('grant buttons identify the site and the status they describe', async () => {
+  const doc = fakeDocument();
+  const perms = fakePermissions(['https://chatgpt.com/*']);
+  await renderOptions({ document: doc, permissions: perms }).ready;
+  for (const li of doc.root.children) {
+    const site = li.attrs['data-site'];
+    const status = li.all((e) => e.className.split(' ').includes('status'))[0];
+    const button = li.all((e) => e.tagName === 'BUTTON')[0];
+    const action = site === 'chatgpt' ? 'Grant file access' : 'Grant';
+    assert.equal(button.attrs['aria-label'], `${action} for ${SITE_ACCESS[site].label}`);
+    assert.equal(button.attrs['aria-describedby'], status.attrs.id);
+    assert.equal(status.attrs.id, `site-status-${site}`);
+  }
+});
+
+test('permission status changes are announced politely with their site', async () => {
+  const doc = fakeDocument();
+  const perms = fakePermissions([]);
+  await renderOptions({ document: doc, permissions: perms }).ready;
+  for (const li of doc.root.children) {
+    const status = li.all((e) => e.className.split(' ').includes('status'))[0];
+    assert.equal(status.attrs.role, 'status');
+    assert.equal(status.attrs['aria-live'], 'polite');
+    assert.equal(status.attrs['aria-atomic'], 'true');
+    assert.equal(status.attrs['aria-label'], `${SITE_ACCESS[li.attrs['data-site']].label}: Not granted`);
+  }
+  SITE_ACCESS.chatgpt.origins.forEach((o) => perms.granted.add(o));
+  await perms.listeners.added[0]();
+  const status = doc.root.children[0].all((e) => e.className.split(' ').includes('status'))[0];
+  assert.equal(status.attrs['aria-label'], 'ChatGPT: Granted');
+});
+
+test('a slow older refresh cannot overwrite a newer permission change', async () => {
+  const doc = fakeDocument();
+  const perms = fakePermissions([]);
+  await renderOptions({ document: doc, permissions: perms }).ready;
+  const contains = perms.contains;
+  let release;
+  let delayed = false;
+  perms.contains = (args) => {
+    if (!delayed) {
+      delayed = true;
+      return new Promise((resolve) => { release = resolve; });
+    }
+    return contains(args);
+  };
+  const olderRefresh = perms.listeners.removed[0]();
+  SITE_ACCESS.chatgpt.origins.forEach((o) => perms.granted.add(o));
+  await perms.listeners.added[0]();
+  assert.equal(rows(doc)[0].status, 'Granted');
+  release(false);
+  await olderRefresh;
+  assert.equal(rows(doc)[0].status, 'Granted', 'the newest permission read wins');
+  assert.equal(rows(doc)[0].button.hidden, true);
+});

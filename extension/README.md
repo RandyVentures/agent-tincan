@@ -81,6 +81,10 @@ click (Chrome allows the
 request only during a user gesture). The page is built with `textContent`, has
 no inline script, and never runs in a site's page.
 
+Grant buttons name their site for assistive technology and describe the site's
+current status. Status changes use polite live regions, and an older permission
+read cannot replace the result of a newer grant or revocation.
+
 The hello lists the granted sites (`granted`, op prefixes), and the worker
 says hello again on `chrome.permissions.onAdded` and `onRemoved`, so the host
 learns a grant without a reconnect. Only the newest hello started is posted,
