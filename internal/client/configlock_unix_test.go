@@ -3,6 +3,7 @@
 package client
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -84,33 +85,66 @@ func TestUpdateSavedRelayGivesUpOnAStuckLock(t *testing.T) {
 // A move whose save met a held config lock saves once the lock is free,
 // under the same rule as the first try.
 func TestRelayMoveSaveRetriesAfterTheLockFrees(t *testing.T) {
-	oldWait, oldEvery := configLockWait, saveRetryEvery
+	oldWait, oldEvery, oldLearn := configLockWait, saveRetryEvery, learnAfterMove
 	configLockWait, saveRetryEvery = 50*time.Millisecond, 50*time.Millisecond
-	t.Cleanup(func() { configLockWait, saveRetryEvery = oldWait, oldEvery })
+	// This test exercises saving under the lock, not the real whoami refresh
+	// that follows a save. A refresh against the fixture hostname can take
+	// longer than the retry assertion's deadline.
+	refreshed := false
+	learnAfterMove = func(context.Context, *Relay) { refreshed = true }
+	t.Cleanup(func() {
+		configLockWait, saveRetryEvery, learnAfterMove = oldWait, oldEvery, oldLearn
+	})
 	path := filepath.Join(t.TempDir(), "client.json")
 	if err := SaveConfigTo(path, Config{Relay: "http://old:8787", Agent: "muse"}); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := NewRelayForFile(Config{Relay: "http://new:8787", Agent: "muse"}, path)
+	r, err := NewRelayForFile(Config{Relay: "http://new:8787", Agent: "muse"}, path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	f, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	locked := false
+	var done chan struct{}
+	t.Cleanup(func() {
+		// On a fatal assertion, release the lock and join the retry before
+		// the earlier cleanup restores the package hooks and timing globals.
+		if locked {
+			if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+				t.Errorf("release config lock during cleanup: %v", err)
+			}
+		}
+		if err := f.Close(); err != nil {
+			t.Errorf("close config lock during cleanup: %v", err)
+		}
+		if done != nil {
+			<-done
+		}
+	})
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan struct{})
+	locked = true
+	done = make(chan struct{})
 	go func() { r.retrySave("http://old:8787", "http://new:8787"); close(done) }()
 	time.Sleep(120 * time.Millisecond)
 	if c := readConfig(t, path); c.Relay != "http://old:8787" {
 		t.Fatalf("saved %+v while the lock was held", c)
 	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	locked = false
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("retry did not finish after the lock freed")
+	}
+	if !refreshed {
+		t.Fatal("saved the move without refreshing relay info")
 	}
 	if c := readConfig(t, path); c.Relay != "http://new:8787" {
 		t.Fatalf("config %+v, want the move saved", c)

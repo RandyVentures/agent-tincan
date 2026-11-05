@@ -27,6 +27,9 @@ class FakeElement {
   setAttribute(k, v) {
     this.attrs[k] = String(v);
   }
+  getAttribute(k) {
+    return this.attrs[k] ?? null;
+  }
   addEventListener(type, fn) {
     (this.listeners[type] ||= []).push(fn);
   }
@@ -289,4 +292,68 @@ test('a slow older refresh cannot overwrite a newer permission change', async ()
   await olderRefresh;
   assert.equal(rows(doc)[0].status, 'Granted', 'the newest permission read wins');
   assert.equal(rows(doc)[0].button.hidden, true);
+});
+
+test('ready waits for the first render when an initial read is superseded', async () => {
+  const doc = fakeDocument();
+  const perms = fakePermissions([]);
+  const contains = perms.contains;
+  const releases = [];
+  perms.contains = (args) => {
+    if (releases.length < 2) return new Promise((resolve) => releases.push(resolve));
+    return contains(args);
+  };
+  const page = renderOptions({ document: doc, permissions: perms });
+  const newerRefresh = perms.listeners.added[0]();
+  let ready = false;
+  page.ready.then(() => { ready = true; });
+  releases[0](false);
+  await new Promise(setImmediate);
+  assert.equal(ready, false, 'a discarded read must not signal that the page rendered');
+  assert.equal(rows(doc).length, 0);
+  releases[1](false);
+  await newerRefresh;
+  await page.ready;
+  assert.equal(ready, true);
+  assert.equal(rows(doc).length, Object.keys(SITE_ACCESS).length);
+});
+
+test('unchanged permission reads do not rewrite live status or focused control labels', async () => {
+  const doc = fakeDocument();
+  const perms = fakePermissions([]);
+  await renderOptions({ document: doc, permissions: perms }).ready;
+  const li = doc.root.children[0];
+  const status = li.all((e) => e.className.split(' ').includes('status'))[0];
+  const button = li.all((e) => e.tagName === 'BUTTON')[0];
+  let statusText = status.textContent;
+  let textWrites = 0;
+  Object.defineProperty(status, 'textContent', {
+    get: () => statusText,
+    set: (value) => { textWrites++; statusText = value; },
+  });
+  let statusLabels = 0;
+  let buttonLabels = 0;
+  for (const element of [status, button]) {
+    const setAttribute = element.setAttribute.bind(element);
+    element.setAttribute = (name, value) => {
+      if (name === 'aria-label') {
+        if (element === status) statusLabels++;
+        else buttonLabels++;
+      }
+      setAttribute(name, value);
+    };
+  }
+  await perms.listeners.added[0]();
+  assert.equal(textWrites, 0);
+  assert.equal(statusLabels, 0);
+  assert.equal(buttonLabels, 0);
+  SITE_ACCESS.chatgpt.origins.forEach((o) => perms.granted.add(o));
+  await perms.listeners.added[0]();
+  assert.equal(textWrites, 1, 'a changed status is still announced');
+  assert.equal(statusLabels, 1);
+  assert.equal(status.attrs['aria-label'], 'ChatGPT: Granted');
+  assert.equal(doc.root.children[0], li, 'the live region stays attached');
+  await perms.listeners.removed[0]();
+  assert.equal(textWrites, 1);
+  assert.equal(statusLabels, 1);
 });

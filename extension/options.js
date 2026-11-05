@@ -43,6 +43,7 @@ export function renderOptions({ document, permissions }) {
   const list = document.getElementById('sites');
   const rows = new Map();
   let refreshGeneration = 0;
+  let latestRefresh;
 
   function row(site, label) {
     const li = document.createElement('li');
@@ -87,26 +88,35 @@ export function renderOptions({ document, permissions }) {
     return r;
   }
 
-  async function refresh() {
+  function refresh() {
     const generation = ++refreshGeneration;
-    const states = await siteStates(permissions);
-    // Permission reads can finish out of order after a grant or revocation.
-    if (generation !== refreshGeneration) return;
-    for (const s of states) {
-      let r = rows.get(s.site);
-      if (!r) {
-        r = row(s.site, s.label);
-        rows.set(s.site, r);
-        list.append(r.li);
+    latestRefresh = (async () => {
+      const states = await siteStates(permissions);
+      // The initial ready promise must follow a superseding read until a
+      // current snapshot has actually rendered.
+      if (generation !== refreshGeneration) return latestRefresh;
+      for (const s of states) {
+        let r = rows.get(s.site);
+        if (!r) {
+          r = row(s.site, s.label);
+          rows.set(s.site, r);
+          list.append(r.li);
+        }
+        const st = STATUS[s.granted ? 'granted' : s.partial ? 'partial' : 'none'];
+        const text = r.error && !s.granted ? r.error : st.text;
+        const className = r.error && !s.granted ? 'status error' : st.className;
+        // Rewriting identical live text can announce an unchanged status.
+        if (r.status.textContent !== text) r.status.textContent = text;
+        if (r.status.className !== className) r.status.className = className;
+        const statusLabel = `${s.label}: ${text}`;
+        if (r.status.getAttribute('aria-label') !== statusLabel) r.status.setAttribute('aria-label', statusLabel);
+        if (r.button.textContent !== st.button) r.button.textContent = st.button;
+        const buttonLabel = `${st.button} for ${s.label}`;
+        if (r.button.getAttribute('aria-label') !== buttonLabel) r.button.setAttribute('aria-label', buttonLabel);
+        if (r.button.hidden !== s.granted) r.button.hidden = s.granted;
       }
-      const st = STATUS[s.granted ? 'granted' : s.partial ? 'partial' : 'none'];
-      r.status.textContent = r.error && !s.granted ? r.error : st.text;
-      r.status.className = r.error && !s.granted ? 'status error' : st.className;
-      r.status.setAttribute('aria-label', `${s.label}: ${r.status.textContent}`);
-      r.button.textContent = st.button;
-      r.button.setAttribute('aria-label', `${st.button} for ${s.label}`);
-      r.button.hidden = s.granted;
-    }
+    })();
+    return latestRefresh;
   }
 
   // A change made elsewhere (chrome://extensions site access) shows here

@@ -84,6 +84,9 @@ no inline script, and never runs in a site's page.
 Grant buttons name their site for assistive technology and describe the site's
 current status. Status changes use polite live regions, and an older permission
 read cannot replace the result of a newer grant or revocation.
+The initial readiness promise waits for a current snapshot to render, even if
+its first read is superseded. Unchanged reads leave live-region text and
+accessible labels intact to avoid repeating status announcements.
 
 The hello lists the granted sites (`granted`, op prefixes), and the worker
 says hello again on `chrome.permissions.onAdded` and `onRemoved`, so the host
