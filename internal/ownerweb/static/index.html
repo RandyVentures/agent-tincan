@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Tincan — Requests</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="masthead"><a class="brand" href="./" aria-label="Tincan home"><span class="brand-mark" aria-hidden="true">t</span>Tincan</a><span id="mode" class="muted"></span><button id="sign-out" class="quiet" hidden>Sign out</button></header>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <p id="live" class="sr-only" aria-live="polite"></p>
+  <main id="login-view" class="login-view">
+    <span class="eyebrow">YOUR WORKSPACE</span><h1>Sign in to Tincan</h1><p class="muted">Send requests to your agents and follow their replies.</p>
+    <form id="login-form">
+      <label for="password">Owner passphrase</label>
+      <input id="password" type="password" autocomplete="current-password" required maxlength="72">
+      <button id="sign-in" class="primary" type="submit">Sign in <span aria-hidden="true">↗</span></button>
+      <p id="login-error" class="error" role="alert" hidden></p>
+    </form>
+  </main>
+  <main id="workspace" class="workspace" hidden>
+    <aside class="history" aria-label="Request history">
+      <div class="history-heading"><h2>Requests</h2><button id="new-request" class="quiet" aria-label="New request">＋</button></div>
+      <p id="history-empty" class="empty">Your requests will appear here.</p><ol id="history-list"></ol>
+      <div class="history-footer"><span id="connection" role="status">Connecting…</span><button id="refresh" class="quiet">Refresh</button></div>
+    </aside>
+    <section class="thread" aria-label="Request workspace">
+      <header class="thread-heading"><div><span class="eyebrow">REQUESTS</span><h1 id="thread-title">What would you like done?</h1></div><span id="thread-state" class="status" hidden></span></header>
+      <div id="detail" class="detail" hidden><section class="message"><span class="speaker">You</span><p id="request-text"></p><span id="request-time" class="muted small"></span></section><section id="reply" class="message reply" hidden><span id="reply-name" class="speaker"></span><p id="reply-text"></p></section><p id="progress" class="muted" hidden></p><div id="held-actions" class="held-actions" hidden><p>This request is waiting for your approval.</p><button id="open-review" class="primary">Review request</button></div></div>
+      <form id="compose" class="compose">
+        <div class="recipient"><label for="target">To</label><select id="target" aria-describedby="target-hint"></select><span id="target-status" class="muted small"></span></div>
+        <label class="sr-only" for="request-body">Your request</label><textarea id="request-body" rows="5" maxlength="16384" placeholder="Write a request for your agent…" required></textarea>
+        <div class="compose-footer"><p id="target-hint" class="muted small">Requests may wait for your approval before delivery.</p><button id="send" class="primary" type="submit">Send request <span aria-hidden="true">↑</span></button></div>
+      </form>
+      <p id="request-error" class="error" role="alert" hidden></p>
+    </section>
+  </main>
+  <dialog id="review" aria-labelledby="review-heading"><div class="review-heading"><div><span class="eyebrow">BEFORE DELIVERY</span><h2 id="review-heading">Review this request</h2></div><button id="close-review" class="quiet" aria-label="Close review">×</button></div><p id="review-route" class="muted"></p><div id="review-body" class="review-body" tabindex="0"></div><p class="muted small">Approving releases this exact request to the agent.</p><p id="review-error" class="error" role="alert" hidden></p><div class="review-actions"><button id="deny" class="quiet">Deny request</button><button id="approve" class="primary">Approve and deliver</button></div></dialog>
+</body>
+</html>

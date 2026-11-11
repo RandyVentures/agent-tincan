@@ -39,6 +39,7 @@ import (
 )
 
 type relayFlags struct {
+	ownerWeb      string
 	urgentPerHour int
 	listen        string
 	hostname      string
@@ -174,6 +175,7 @@ with --upgrade-exit exits with status 75 for its supervisor to restart it.`,
 	cmd.Flags().BoolVar(&f.upgradeExit, "upgrade-exit", false, "after tincan relay-upgrade, exit with status 75 for a supervisor to restart the relay instead of re-executing it")
 	cmd.Flags().StringVar(&f.releaseURL, "release-url", "", "let tincan relay-upgrade --from-github download releases from <url>/<tag>/<file> (for this project: "+GitHubReleaseURL+"); off when empty")
 	cmd.Flags().BoolVar(&f.gateway, "chatgpt-gateway", false, "serve the public ChatGPT MCP gateway through Tailscale Funnel (OAuth-protected)")
+	cmd.Flags().StringVar(&f.ownerWeb, "owner-web-config", "", "private JSON config for the opt-in authenticated owner web app (loopback listener; see docs/owner-web.md)")
 	cmd.Flags().StringVar(&f.gatewayHostname, "gateway-hostname", "tincan-gateway", "tsnet node name for the Funnel gateway")
 	cmd.Flags().StringVar(&f.gatewayListen, "gateway-listen", "", "serve the gateway on this plain-HTTP address instead of Funnel (put your own TLS proxy in front)")
 	cmd.Flags().StringVar(&f.gatewayURL, "gateway-url", "", "public https URL of the gateway when using --gateway-listen")
@@ -546,11 +548,23 @@ func runRelay(ctx context.Context, f relayFlags) error {
 	}
 	admin := client.Configure(&http.Server{Handler: srv.AdminHandler()}, client.RelayAPI)
 
-	errc := make(chan error, 4)
+	ownerHTTP, ownerLn, err := prepareOwnerWeb(ctx, srv, st.DB(), f.ownerWeb)
+	if err != nil {
+		return fmt.Errorf("owner web: %w", err)
+	}
+	if ownerLn != nil {
+		defer ownerLn.Close()
+	}
+	errc := make(chan error, 5)
 	servers := []*http.Server{api, admin}
 	closeGW := func() {}
 	go func() { errc <- api.Serve(ln) }()
 	go func() { errc <- admin.Serve(aln) }()
+	if ownerHTTP != nil {
+		go func() { errc <- ownerHTTP.Serve(ownerLn) }()
+		servers = append(servers, ownerHTTP)
+		log.Printf("owner web listening on %s (authenticated; public HTTPS proxy configured separately)", ownerLn.Addr())
+	}
 	// The phone page is served on every tailnet listener. With HTTPS from
 	// the tailnet it also gets its own TLS listener, hardened like the
 	// plain one with the certificate name added to the names it accepts;

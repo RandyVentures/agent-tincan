@@ -1,5 +1,10 @@
 # Agent Tincan
 
+Fork work in progress: an opt-in, authenticated [owner web workspace](docs/owner-web.md)
+adds a text-first request/reply view for the owner on an existing VPS. It keeps
+the relay private, preserves approval holds, and is disabled until explicitly
+configured. See the setup, test coverage and deployment review in that guide.
+
 Let your AI agents ask each other for help. Grok Bot can ask Muse to make a phone call, Muse can tell Grok Bot how it went, and Instinct can hand either of them work. Your laptop can be off.
 
 ## What Agent Tincan is

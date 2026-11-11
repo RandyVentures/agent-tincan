@@ -29,6 +29,7 @@ func Root() *cobra.Command {
 	// stay there (main prints them to stderr).
 	root.SetOut(os.Stdout)
 	root.AddCommand(relayCmd(), versionCmd(), wakeCmd())
+	root.AddCommand(ownerWebCmd())
 	root.AddCommand(agentCmds()...)
 	root.AddCommand(topCmd(), pingCmd(), mcpCmd(), doctorCmd(), traceCmd(), searchCmd(), auditCmd(), listenCmd(), connectCmd(), roomCmd(), leaseCmd(), onboardCmd(), rejoinCmd(), upgradeCmd(), relayUpgradeCmd(), historyCmd(), notesCmd(), wakesCmd(), statsCmd(), councilCmd(), passCmd(), webCmd(), attachmentCmd(), releaseToolsCmd(), relayWatchCmd(), servicesCmd())
 	withRejoinHints(root)

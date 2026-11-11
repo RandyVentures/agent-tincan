@@ -1,5 +1,17 @@
 # Trust model
 
+Fork addition: the optional authenticated [owner web workspace](owner-web.md)
+is a separate browser surface intended for an owner, not an agent. Its
+loopback listener is disabled unless explicitly configured; public HTTPS
+hosting is a separate deployment decision. Its authenticated backend can ask
+only configured teammates as its own ask-only identity, read its own history,
+and approve or deny only its own held requests after a full-text review. It
+does not expose the raw relay API, local admin socket, invite tools, keys or
+the phone page's device-admin rights. The process still holds an in-process
+admin capability for its fixed history query and decisions, so protect its
+config and passphrase as owner credentials. It does not change the following
+upstream guarantees for existing listeners or agents.
+
 ## What Agent Tincan guarantees
 
 - The relay only listens on your tailnet. The one exception is the optional MCP gateway (`--chatgpt-gateway`), which serves only the MCP tools, OAuth and, when you publish teammates in `a2a.json`, the [A2A](#a2a) cards and endpoints on its own Funnel hostname. It serves any cloud agent an admin connects with `tincan connect <name>` (ChatGPT, Sesame), each with its own tokens; each such agent's vendor receives the requests sent to it and every teammate answer it gets, including `history` and web-agent answers unless their allow files leave it out. `tincan connect` refuses a name already held by an agent joined from a real tailnet machine, so a gateway login cannot quietly take over that agent's identity; the admin must pass `--replace` to move the name to the gateway. Reconnecting a name that is already on the gateway needs no flag. The relay also polls AgentMail outbound for email replies (below); it never opens a listener for them.
