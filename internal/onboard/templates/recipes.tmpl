@@ -10,6 +10,7 @@ On an admin device (or on the relay host with --socket <state-dir>/admin.sock): 
 On the agent's machine: {{template "join.default" .}}
 {{- end -}}
 {{- define "recipe.invite.proxy-sandbox" -}}
+{{template "preflight.proxy-sandbox" .}}
 On an admin device (or on the relay host with --socket <state-dir>/admin.sock): tincan invite <name> --kind {{.Kind}}. The code is valid 10 minutes; hand it straight to the agent's machine, never through group chat or logs.
 On the agent's machine: {{template "join.proxy-sandbox" .}}
 {{- end -}}

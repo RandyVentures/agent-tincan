@@ -148,6 +148,10 @@ A5. Join this machine's own agent (you), if you are one of the team:
 A6. Invite the rest of the team. Ask your owner which agents to add (for example
     muse, instinct, codex, claude-code, hermes). For each one:
 
+    For Muse, first complete the network approval check in B1a and
+    docs/adapters/proxy-sandbox.md without an invite. Create its code only
+    after that check succeeds, so first-use approval cannot consume its lifetime.
+
         tincan invite <name> --kind <kind>
 
     Codes are single-use and valid 10 minutes. `tincan invite` prints a message
@@ -196,6 +200,15 @@ must be signed in to Tailscale as your owner and must not carry an agent tag.
 
 B1. Install tincan (above).
 
+B1a. Muse: before the owner creates the 10-minute invite, follow
+     docs/adapters/proxy-sandbox.md to make a read-only connection check through
+     the Tailscale tunnel proxy and wait for the owner's first-use hostname
+     approval. Use the same short hostname for the check and join. A bare
+     /v1/hello returns 400; include the documented public nonce. Request a fresh
+     invite only after HTTP 200 with service agent-tincan-relay. Do not use join
+     as the approval wait, print proxy credentials, or retry an uncertain join
+     without having the owner check the roster.
+
 B2. Join, with the code and relay address from your message (the relay is
     usually http://tincan-relay):
 
@@ -208,11 +221,14 @@ B2. Join, with the code and relay address from your message (the relay is
     including on macOS; set that override before join, MCP and listeners alike.
 
     - Proxy-only sandbox whose default proxy cannot reach the tailnet: add
-      `--proxy http://<user>:<pass>@<tunnel-proxy-host>:<port>` (ask your owner
-      for the tunnel proxy; keep the credentials out of chat). If the sandbox
-      mints a new proxy password for every shell, also add
-      `--proxy-credentials-from-env`: the password stays out of your config and
-      each command takes the current one from HTTPS_PROXY on the same host.
+      `--proxy http://<tunnel-proxy-host>:<port>` and, when it mints a new proxy
+      password per shell, `--proxy-credentials-from-env`. Each command takes
+      current credentials from the environment on the same proxy host; keep
+      them out of command arguments, chat and config. On Muse use
+      `http://hatch-egress-proxy:3130` and a dedicated TINCAN_CONFIG path. Follow
+      docs/adapters/proxy-sandbox.md for the bounded reply test before enabling
+      ongoing waits or schedules. Other proxies may require credentials;
+      follow their adapter instructions without exposing passwords in chat.
     - Userspace Tailscale (Grok Bot and other wiped hosts): add
       `--proxy http://localhost:1055`, tailscaled's local proxy. Your machine is
       tagged, so rejoin cannot re-admit it. If its Tailscale identity was lost,

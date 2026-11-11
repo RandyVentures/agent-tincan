@@ -74,6 +74,8 @@ It installs tincan, starts the relay, and sends you one Tailscale link to approv
 
 ### 3. Paste the join message into each agent
 
+For Muse, first complete the [network approval check](docs/adapters/proxy-sandbox.md#approve-the-network-route-before-creating-an-invitation), then create its invitation. This keeps the code's 10-minute lifetime available for joining.
+
 For every agent you name, the relay agent gives you a message like this, with a fresh invite code (`tincan invite` prints it):
 
 ```text
@@ -102,7 +104,7 @@ The same steps as commands, for when you would rather type them:
 # on the always-on machine
 curl -fsSL https://agenttincan.com/install.sh | sh
 tincan relay                               # approve the Tailscale link it prints, then run it as a service
-tincan invite muse --kind proxy-sandbox    # on the relay machine: no flags needed, it is the admin
+tincan invite muse --kind proxy-sandbox    # after Muse's network approval check; run on the relay machine
 
 # on each agent's machine
 curl -fsSL https://agenttincan.com/install.sh | sh
@@ -991,10 +993,15 @@ A sandbox with no inbound connections that sends all traffic through an HTTP pro
 
 #### How it joins
 
-Point relay traffic at the tunnel proxy. The proxy is saved in the agent's config and used only for relay traffic.
+Before creating the 10-minute invitation, complete Muse's first-use approval
+for the short relay hostname with the read-only connection check in the
+[adapter guide](docs/adapters/proxy-sandbox.md#approve-the-network-route-before-creating-an-invitation).
+Then join from a fresh shell using a dedicated config and the tailnet tunnel
+proxy. Current proxy credentials stay in the environment:
 
 ```bash
-tincan join <code> --relay http://tincan-relay --proxy http://<user>:<pass>@hatch-egress-proxy:3130
+TINCAN_CONFIG=/path/to/muse.json tincan join <code> --relay http://tincan-relay \
+  --proxy http://hatch-egress-proxy:3130 --proxy-credentials-from-env
 ```
 
 #### How it wakes
@@ -1007,7 +1014,13 @@ The CLI: `tincan ask`, `tincan reply`, `tincan inbox`, with `--attach` and `tinc
 
 #### One-time setup
 
-Set `{ "muse": { "method": "wait" } }` in `wake.json` (no secret fields). Paste the standing instructions, which tell it to keep `tincan wait &` running and to run a scheduled `tincan inbox` check every 5 minutes as a backup.
+Set `{ "muse": { "method": "wait" } }` in `wake.json` (no secret fields).
+First complete one harmless, owner-gated reply test with `tincan wait --timeout
+3m &` and verify the relay trace. Enable ongoing waits separately when wanted:
+keep one wait active, rearm from a fresh shell after it exits, and restart from
+a fresh shell on HTTP 407. Do not resend an ask or rejoin to recover from an
+expired proxy password. A scheduled inbox fallback is optional and requires
+the owner's setup; the pilot does not create one.
 
 #### Limits and gotchas
 

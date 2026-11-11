@@ -35,7 +35,7 @@ If another agent already runs on this machine, prefix every tincan command (join
 {{- end -}}
 
 {{- define "join.default"}}{{template "cfg" .}}tincan join <code> --relay {{.RelayURL}}{{end -}}
-{{- define "join.proxy-sandbox"}}tincan join <code> --relay {{.RelayURL}} --proxy http://<user>:<pass>@<tunnel-proxy-host>:<port>{{end -}}
+{{- define "join.proxy-sandbox"}}tincan join <code> --relay {{.RelayURL}} --proxy http://<tunnel-proxy-host>:<port> --proxy-credentials-from-env{{end -}}
 {{- define "join.chatgpt"}}tincan connect chatgpt (on an admin device; the relay must run with --chatgpt-gateway){{end -}}
 {{- define "join.phone"}}Join this phone, on the relay's phone page ({{.RelayURL}}/phone/) opened on the phone; no invite code to carry{{end -}}
 {{- define "join.sesame"}}tincan connect {{.Name}} (on an admin device; the relay must run with --chatgpt-gateway){{end -}}
@@ -87,7 +87,7 @@ If your Agent Tincan tools are missing or show 0 tools, or tincan cannot reach t
 {{- end -}}
 {{- end -}}
 
-{{- define "rejoin"}}{{template "cfg" .}}tincan rejoin --relay {{.RelayURL}}{{if eq .Kind "proxy-sandbox"}} --proxy http://<user>:<pass>@<tunnel-proxy-host>:<port>{{end}}{{if .OwnConfig}} --name {{.Name}}{{end}}{{end -}}
+{{- define "rejoin"}}{{template "cfg" .}}tincan rejoin --relay {{.RelayURL}}{{if eq .Kind "proxy-sandbox"}} --proxy http://<tunnel-proxy-host>:<port> --proxy-credentials-from-env{{end}}{{if .OwnConfig}} --name {{.Name}}{{end}}{{end -}}
 
 {{- define "setup.samename" -}}
 Keep the same machine name (Tailscale hostname) when you rebuild or recreate this sandbox. The relay then re-admits the new machine as {{.Name}} on its first tincan rejoin, with no new invite.
@@ -113,8 +113,9 @@ Keep a scheduled task, not a background loop, that runs tincan inbox every 15 mi
 {{- end -}}
 
 {{- define "instructions.proxy-sandbox" -}}
-If tincan cannot reach the relay, it is almost never your tunnel: the relay may have moved. tincan finds it by itself through the address the relay advertised; if your app then asks to allow a new site for it, ask {{.Owner}} to choose "Always allow this site".
-Keep tincan wait & running in the background at all times. When it exits, it prints either a teammate's request (handle it and reply with tincan reply <id> "<result>") or a count of replies to your own requests (run tincan inbox to read them and finish the work that was waiting on them). Then start tincan wait & again. Also keep a scheduled check every 5 minutes that runs tincan inbox.
+Start with the bounded reply test in docs/adapters/proxy-sandbox.md; enable ongoing wake only when {{.Owner}} wants you to keep receiving work. A held request cannot wake you until the owner approves it.
+For ongoing wake, keep one wait active: run tincan wait & from a fresh shell with your dedicated config. When it exits, it prints either a teammate's request (handle it and reply with tincan reply <id> "<result>") or a count of replies to your own requests (run tincan inbox to read them and finish the work that was waiting on them). Then start tincan wait & again, once from a fresh shell. On HTTP 407, the shell's proxy credentials have expired; start a new wait from a fresh shell, without rejoining or requesting an invitation. Do not resend an ask to repair a failed wait. Create a scheduled inbox fallback only if the owner enables it.
+For a connection timeout, distinguish first-use hostname approval from relay or proxy failure before retrying. A new hostname or IP needs separate owner approval in Muse; do not approve addresses yourself. This sandbox cannot search the local Tailscale netmap. See docs/adapters/proxy-sandbox.md before changing the relay address.
 {{- end -}}
 
 {{- define "instructions.scheduled" -}}
@@ -288,11 +289,16 @@ Ask {{.Name}} to keep its own scheduled tincan inbox check as a backup, then pas
 {{- end -}}
 
 {{- define "setup.proxy-sandbox" -}}
-Join through the proxy that reaches the tailnet (--proxy), not the sandbox's default egress proxy. The proxy credentials are saved in the agent's own config; never paste them in chat. If the sandbox mints a new proxy password for every shell, add --proxy-credentials-from-env: the password is then left out of the config and each command takes the current one from HTTPS_PROXY on the same host.
-If the sandbox's app asks before each new site (for example "Allow ... to access <host>?"), choose "Always allow this site" for the relay's address when it first asks, and for its name too: after joining, run tincan doctor, which touches both. Otherwise the background wait loop stalls on the prompt, and after a relay move the agent cannot reach the relay until someone approves it.
+For an initial Muse join, complete the route approval before creating an invitation as described in docs/adapters/proxy-sandbox.md. An already joined agent does not need another invitation for the reply test.
+Use a dedicated unused TINCAN_CONFIG path and reuse it for join, wait, inbox, reply and rejoin; do not overwrite another teammate's config. Join through the tailnet tunnel proxy (--proxy). On Muse use http://hatch-egress-proxy:3130 with --proxy-credentials-from-env, so the password stays out of command arguments and config and each command takes current credentials from the same proxy host in its environment. For another proxy, follow its adapter's authentication instructions. Remove unintended TINCAN_PROXY, TINCAN_RELAY, TINCAN_SESSION and TINCAN_PROJECT overrides; never print credentials or config contents.
+First test one harmless request held by the owner's approval gate: start tincan wait --timeout 3m in the background, have the owner inspect and approve only that request, reply by ID, and verify the sender's get result and owner's trace. If the wait ends before approval, restart it from a fresh shell without resending the ask. Stop remaining pilot waits and remove disposable test identities after verification. Follow docs/adapters/proxy-sandbox.md.
 On the relay host, in wake.json: set {{.Name}} to method "wait" so teammates see how it wakes. No secret fields.
-Paste the standing instructions; {{.Name}} starts tincan wait & and keeps it running.
+Only when the owner enables ongoing wake, paste the standing instructions and keep one wait active. No schedule is created by the pilot instructions.
 {{template "setup.samename" .}}
+{{- end -}}
+
+{{- define "preflight.proxy-sandbox" -}}
+For Muse, before creating an invitation, connect its Tailscale connector to the relay's tailnet. Use the same short relay hostname throughout and make one read-only GET to path /v1/hello?nonce=tincan-muse-connection-check on relay {{.RelayURL}} through the tailnet tunnel proxy with current credentials kept in memory; do not follow redirects. Leave this request waiting for the owner's first-use hostname approval, without a short timeout or repeated requests. Expect HTTP 200 and service agent-tincan-relay; report only those fields, not the proof or headers. Only then create the 10-minute invitation. If a join times out, have the owner inspect the roster before retrying. See docs/adapters/proxy-sandbox.md. For another proxy-only sandbox, follow its adapter's network setup first.
 {{- end -}}
 
 {{- define "setup.scheduled" -}}
