@@ -78,7 +78,7 @@ function main() {
   function hue(name) { let x = 0; for (const c of name) x = (x * 31 + c.codePointAt(0)) % 360; return (x + 12) % 360; }
   function avatar(name, cls = '', presence = '') {
     const el = h('span', { class: 'avatar ' + cls, 'aria-hidden': 'true', text: (name || '?').slice(0, 1) });
-    el.style.setProperty('--hue', String(hue(name || '?')));
+    el.classList.add('hue-' + Math.floor(hue(name || '?') / 45));
     if (presence) el.dataset.presence = presence;
     return el;
   }
@@ -181,7 +181,10 @@ function main() {
     if (animate) { document.body.classList.add('theme-anim'); setTimeout(() => document.body.classList.remove('theme-anim'), 400); }
     if (pref === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = pref;
     try { if (pref === 'system') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, pref); } catch { /* storage may be blocked */ }
-    for (const btn of document.querySelectorAll('[data-theme-switch] button')) btn.setAttribute('aria-checked', String(btn.dataset.value === pref));
+    for (const btn of document.querySelectorAll('[data-theme-switch] button')) {
+      const selected = btn.dataset.value === pref;
+      btn.setAttribute('aria-checked', String(selected)); btn.tabIndex = selected ? 0 : -1;
+    }
     const meta = [...document.querySelectorAll('meta[name="theme-color"]')];
     const forced = pref === 'dark' ? '#0f1013' : pref === 'light' ? '#f4f2ee' : null;
     meta[0].content = forced || '#f4f2ee'; meta[1].content = forced || '#0f1013';
@@ -191,6 +194,15 @@ function main() {
     $('theme-cycle').title = 'Appearance: ' + cur[1];
   }
   for (const wrap of document.querySelectorAll('[data-theme-switch]')) {
+    wrap.addEventListener('keydown', e => {
+      const buttons = [...wrap.querySelectorAll('button')];
+      const index = buttons.indexOf(document.activeElement);
+      const direction = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (index < 0 || (!direction && e.key !== 'Home' && e.key !== 'End')) return;
+      e.preventDefault();
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : (index + direction + buttons.length) % buttons.length;
+      applyTheme(buttons[next].dataset.value, true); buttons[next].focus();
+    });
     for (const [value, label, ic] of THEMES) {
       wrap.append(h('button', { type: 'button', role: 'radio', 'data-value': value, 'aria-checked': 'false', 'aria-label': label + ' appearance', onclick: () => applyTheme(value, true) }, icon(ic), h('span', { text: label })));
     }
@@ -237,7 +249,7 @@ function main() {
     state.epoch++;
     for (const ctl of state.controllers) ctl.abort();
     state.controllers.clear();
-    state.busy = false; state.polling = false; state.connected = false; state.target = null; state.reviewPending = false;
+    state.railSig = ''; state.busy = false; state.polling = false; state.connected = false; state.target = null; state.reviewPending = false;
     state.csrf = ''; state.items = []; state.targets = []; state.submission = null; state.review = null; state.followUp = null; state.loaded = false;
     state.nodes.clear(); state.days.clear(); state.expanded.clear(); state.lastStatus.clear();
     clearInterval(state.interval); state.interval = null;
@@ -329,6 +341,11 @@ function main() {
   const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
   function renderRail(names) {
+    const sig = JSON.stringify([names, state.target, state.targets, state.items]);
+    if (state.railSig === sig) return;
+    state.railSig = sig;
+    const focused = document.activeElement;
+    const focusTarget = focused?.dataset.conversation; const focusReview = focused?.dataset.review;
     const list = $('conversations'); list.replaceChildren();
     for (const name of names) {
       const items = state.items.filter(i => i.request.to === name);
@@ -339,7 +356,7 @@ function main() {
         : (ACTIVE.has(last.status) || last.status === 'answered' ? 'You: ' : (STATUS[last.status] || { label: last.status }).label + ' · ') + plain(last.request.body);
       const when = last ? new Date((last.reply && last.reply.created_at) || last.request.created_at) : null;
       list.append(h('li', {}, h('button', {
-        type: 'button', class: 'convo', 'aria-current': String(name === state.target),
+        type: 'button', class: 'convo', 'data-conversation': name, 'aria-current': String(name === state.target),
         onclick: () => { if (state.target !== name) { state.target = name; setContext(null); state.nodes.clear(); state.days.clear(); $('feed').replaceChildren(); state.loaded = false; render(); } closeRail(); $('request-body').focus({ preventScroll: true }); },
       },
       avatar(name, '', presenceKey(targetInfo(name))),
@@ -353,10 +370,12 @@ function main() {
     $('approvals-count').textContent = pend.length || '';
     const ap = $('approvals'); ap.replaceChildren();
     for (const it of pend.slice().reverse()) {
-      ap.append(h('li', {}, h('button', { type: 'button', class: 'approval', onclick: () => { closeRail(); focusTurn(it); openReview(it.request.id); } },
+      ap.append(h('li', {}, h('button', { type: 'button', class: 'approval', 'data-review': it.request.id, onclick: () => { closeRail(); focusTurn(it); openReview(it.request.id); } },
         h('strong', { text: plain(it.request.body).replace(/\s+/g, ' ').slice(0, 80) }),
         h('span', { text: 'To ' + cap(it.request.to) + ' · Review now →' }))));
     }
+    const key = focusTarget ? '[data-conversation="' + CSS.escape(focusTarget) + '"]' : focusReview ? '[data-review="' + CSS.escape(focusReview) + '"]' : null;
+    if (key) ($('rail').querySelector(key) || $('close-rail')).focus({ preventScroll: true });
   }
 
   function renderHead() {
@@ -375,7 +394,7 @@ function main() {
     const t = targetInfo(it.request.to);
     return JSON.stringify([it.status, it.request.body, it.reply && [it.reply.body, it.reply.from, it.reply.status, it.reply.created_at],
       it.progress && [it.progress.note, it.progress.at], it.relay_note && it.relay_note.note,
-      (it.exchanges || []).map(e => [e.question, e.answer]), it.status === 'queued' ? presenceKey(t) : '', state.expanded.has(it.request.id)]);
+      (it.exchanges || []).map(e => [e.question, e.answer]), it.status === 'queued' ? presenceKey(t) : '', state.expanded.has(it.request.id + ':q'), state.expanded.has(it.request.id + ':a')]);
   }
 
   function renderFeed() {
@@ -444,15 +463,15 @@ function main() {
       queued: [2, '', 'Queued', online ? name + ' picks it up on its next check.' : name + ' is offline — it’ll wait in the queue.'],
       delivered: [3, '', 'Delivered', name + ' has it.'],
       claimed: [3, '', 'Working on it', name + ' is on it.'],
-      needs_input: [3, 'warn', name + ' has a question', 'See the question below.'],
+      needs_input: [3, 'warn', name + ' has a question', 'A follow-up sends a new request; it does not resolve this request’s question.'],
     }[it.status];
     if (!conf) return null;
     const [now, tone, title, sub] = conf;
     const note = it.progress && it.progress.note;
     const steps = h('div', { class: 'track-steps', 'aria-hidden': 'true' });
     for (let i = 0; i < 5; i++) steps.append(h('i', { class: i < now ? 'done' : i === now ? 'now' : '' }));
-    const labels = ['Sent', 'Cleared', 'Picked up', 'Working', 'Answered'];
-    return h('div', { class: 'track ' + tone, role: 'group', 'aria-label': 'Progress: step ' + (now + 1) + ' of 5, ' + labels[now] },
+    const labels = ['Sent', 'Approval', 'Pickup', 'Working', 'Answered'];
+    return h('div', { class: 'track ' + tone, role: 'group', 'aria-label': 'Progress: step ' + (now + 1) + ' of 5, ' + labels[now] + ': ' + title },
       steps,
       h('div', { class: 'track-text' },
         h('span', {}, h('b', { text: title }), ' · ' + (note || sub)),
@@ -493,7 +512,7 @@ function main() {
     // Clarifications
     for (const ex of it.exchanges || []) {
       li.append(agentMsg(req.to, ex.at, h('div', { class: 'bubble bubble-question' }, h('div', { class: 'q-label' }, icon('reply'), 'Question'), rich(ex.question)),
-        ex.answer ? null : [h('button', { type: 'button', class: 'tool', onclick: () => followUp(it, ex.question) }, icon('reply'), 'Answer in a follow-up')]));
+        ex.answer ? null : [h('button', { type: 'button', class: 'tool', onclick: () => followUp(it, ex.question) }, icon('reply'), 'Discuss in a new request')]));
       if (ex.answer) li.append(h('div', { class: 'msg msg-you' }, h('div', { class: 'msg-body' }, h('div', { class: 'bubble bubble-you' }, rich(ex.answer)))));
     }
 
@@ -554,7 +573,7 @@ function main() {
   const ta = $('request-body');
   const fieldSizing = typeof CSS !== 'undefined' && CSS.supports && CSS.supports('field-sizing', 'content');
   function autosize() {
-    if (!fieldSizing) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, innerHeight * 0.4) + 'px'; }
+    if (!fieldSizing) { ta.rows = 1; ta.rows = Math.min(10, Math.max(1, Math.ceil((ta.scrollHeight - 20) / 24))); }
     const n = byteLength(compose(ta.value.trim())); const c = $('count');
     c.hidden = n < 12000; c.textContent = n.toLocaleString() + ' / ' + MAX_BODY.toLocaleString() + ' bytes'; c.classList.toggle('warn', n > 15000);
     updateSend();
@@ -576,14 +595,13 @@ function main() {
   function saveDraft() { try { sessionStorage.setItem(DRAFT, ta.value); } catch { /* ignore */ } }
   function clearDraft() { try { sessionStorage.removeItem(DRAFT); } catch { /* ignore */ } }
   function restoreDraft() { try { const d = sessionStorage.getItem(DRAFT); if (d && !ta.value) ta.value = d; } catch { /* ignore */ } autosize(); }
-  ta.addEventListener('input', () => { autosize(); saveDraft(); });
+  ta.addEventListener('input', () => { error('request-error', ''); autosize(); saveDraft(); });
   ta.addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('compose').requestSubmit(); }
   });
-  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(([e]) => { document.documentElement.style.setProperty('--composer-h', Math.round(e.target.offsetHeight) + 'px'); }).observe($('compose'));
 
   // Follow-ups carry a quoted excerpt of the earlier exchange. The review
-  // sheet shows that exact text; the timeline folds it into one line.
+  // sheet and timeline preserve that exact text; prefixes are not hidden metadata.
   const plain = body => body;
   function excerpt(text, n) { const t = text.replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t; }
   function followUp(it, question) {
@@ -614,7 +632,8 @@ function main() {
     e.preventDefault();
     if (state.busy || !state.csrf || !state.connected) return;
     const epoch = state.epoch;
-    const text = ta.value.trim(), target = state.target;
+    const draft = ta.value, context = state.followUp;
+    const text = draft.trim(), target = state.target;
     if (!text || !target) return;
     const body = compose(text);
     if (byteLength(body) > MAX_BODY) { error('request-error', 'Message including follow-up context exceeds 16 KiB. Shorten it before sending.'); return; }
@@ -630,7 +649,11 @@ function main() {
     try {
       const sent = await api('requests', { target, body, submission_key: submission.key });
       if (epoch !== state.epoch) return;
-      ta.value = ''; state.submission = null; clearDraft(); setContext(null); autosize();
+      state.submission = null;
+      if (ta.value === draft && state.followUp === context && state.target === target) {
+        ta.value = ''; clearDraft(); setContext(null);
+      }
+      autosize();
       const msg = sent.status === 'held' ? 'Sent — waiting for your approval' : 'Sent to ' + cap(target);
       say(msg + '.'); toast(msg, sent.status === 'held' ? 'shield' : 'check');
       $('sending-slot').replaceChildren();
@@ -695,8 +718,24 @@ function main() {
   $('deny').addEventListener('click', () => decide('deny'));
 
   /* ───────── Rail (mobile drawer) ───────── */
-  function openRail() { $('workspace').classList.add('rail-open'); $('scrim').hidden = false; $('open-rail').setAttribute('aria-expanded', 'true'); setTimeout(() => $('close-rail').focus(), 50); }
-  function closeRail() { if (!$('workspace').classList.contains('rail-open')) return; $('workspace').classList.remove('rail-open'); $('open-rail').setAttribute('aria-expanded', 'false'); }
+  function openRail() {
+    if (!isMobile()) return;
+    $('workspace').classList.add('rail-open'); $('scrim').hidden = false;
+    $('rail').setAttribute('role', 'dialog'); $('rail').setAttribute('aria-modal', 'true');
+    document.querySelector('.chat').setAttribute('inert', '');
+    document.querySelector('.chat').setAttribute('aria-hidden', 'true');
+    $('open-rail').setAttribute('aria-expanded', 'true'); $('close-rail').focus();
+  }
+  function closeRail(restoreFocus = true) {
+    const wasOpen = $('workspace').classList.contains('rail-open');
+    $('workspace').classList.remove('rail-open'); $('scrim').hidden = true;
+    $('rail').removeAttribute('role'); $('rail').removeAttribute('aria-modal');
+    document.querySelector('.chat').removeAttribute('inert');
+    document.querySelector('.chat').removeAttribute('aria-hidden');
+    $('open-rail').setAttribute('aria-expanded', 'false');
+    if (wasOpen && restoreFocus && !$('workspace').hidden) $('open-rail').focus();
+  }
+  matchMedia('(max-width: 820px)').addEventListener('change', () => { if (!isMobile()) closeRail(false); });
   $('open-rail').addEventListener('click', openRail);
   $('close-rail').addEventListener('click', closeRail);
   $('scrim').addEventListener('click', closeRail);
@@ -708,7 +747,15 @@ function main() {
     try { await api('logout', {}); if (epoch !== state.epoch) return; signedOut(); toast('Signed out', 'out'); } catch (e) { if (epoch === state.epoch) notice(e.message); }
   });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && $('workspace').classList.contains('rail-open')) { closeRail(); $('open-rail').focus(); }
+    if ($('workspace').classList.contains('rail-open')) {
+      if (e.key === 'Escape') { e.preventDefault(); closeRail(); return; }
+      if (e.key === 'Tab') {
+        const focusable = [...$('rail').querySelectorAll('button:not(:disabled), a[href], [tabindex="0"]')].filter(el => el.getClientRects().length);
+        const first = focusable[0], last = focusable[focusable.length - 1];
+        if (first && e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (last && !e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
     if (e.key === '/' && !typing && !$('workspace').hidden && !$('review').open) { e.preventDefault(); ta.focus(); }
   });

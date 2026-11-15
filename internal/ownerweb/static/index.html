@@ -125,9 +125,8 @@
         </div>
         <ol id="feed" class="feed" aria-label="Messages"></ol>
         <div id="sending-slot"></div>
+        <button id="jump" class="jump" type="button" hidden><svg><use href="#i-down"/></svg><span>New activity</span></button>
       </div>
-
-      <button id="jump" class="jump" type="button" hidden><svg><use href="#i-down"/></svg><span>New activity</span></button>
 
       <form id="compose" class="composer" novalidate>
         <p id="request-error" class="compose-error" role="alert" hidden></p>
@@ -138,7 +137,7 @@
         </div>
         <div class="compose-box">
           <label class="sr-only" for="request-body">Message</label>
-          <textarea id="request-body" rows="1" maxlength="16000" placeholder="Message…" enterkeyhint="enter"></textarea>
+          <textarea id="request-body" rows="1" maxlength="16384" placeholder="Message…" enterkeyhint="enter"></textarea>
           <button id="send" class="send" type="submit" aria-label="Send request"><svg><use href="#i-send"/></svg></button>
         </div>
         <div class="compose-meta">
