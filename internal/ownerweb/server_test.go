@@ -336,6 +336,41 @@ func TestOwnerWebAuthenticationAndScope(t *testing.T) {
 	}
 }
 
+func TestOwnerWebUTF8BodyLimits(t *testing.T) {
+	e := webSetup(t)
+	e.login(t)
+	body := strings.Repeat("😀", 4096) // 16 KiB, despite only 4096 Unicode characters.
+	if len(body) != 16384 {
+		t.Fatal("unexpected fixture size")
+	}
+	sent := e.send(t, "owner-web-utf8-limit-accepted", body)
+	stored, err := e.backend.Get(t.Context(), sent.ID)
+	if err != nil || stored.Request.Body != body {
+		t.Fatalf("multibyte body changed: %v", err)
+	}
+	code, _, _ := e.request(t, "POST", "/api/requests", map[string]string{
+		"submission_key": "owner-web-utf8-limit-rejected", "target": "muse", "body": body + "😀",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("oversized UTF-8 body = %d", code)
+	}
+}
+
+func TestOwnerWebServesOnlyItsOwnAssets(t *testing.T) {
+	e := webSetup(t)
+	for path, ctype := range map[string]string{"/app.js": "text/javascript", "/style.css": "text/css", "/icon.svg": "image/svg+xml"} {
+		code, _, resp := e.request(t, "GET", path, nil)
+		if code != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), ctype) {
+			t.Fatalf("%s = %d %q", path, code, resp.Header.Get("Content-Type"))
+		}
+	}
+	for _, path := range []string{"/server.go", "/static/app.js", "/../go.mod", "/favicon.ico"} {
+		if code, _, _ := e.request(t, "GET", path, nil); code != 404 {
+			t.Fatalf("unlisted asset %s = %d", path, code)
+		}
+	}
+}
+
 func TestOwnerWebRejectsCrossOriginAndRebinding(t *testing.T) {
 	e := webSetup(t)
 	for _, tc := range []struct{ host, origin, contentType, fetchSite string }{
