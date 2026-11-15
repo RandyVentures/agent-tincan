@@ -384,7 +384,7 @@ kbd { font: 600 11px/1 var(--font); min-width: 20px; height: 20px; padding: 0 5p
 
 /* Jump to latest */
 .jump {
-  position: absolute; left: 50%; bottom: calc(var(--composer-h, 120px) + 14px); z-index: 4; transform: translateX(-50%);
+  position: sticky; left: 50%; bottom: 14px; z-index: 4; transform: translateX(-50%);
   display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px 0 10px; border-radius: 999px;
   background: var(--ink); color: var(--bg); font-size: 13px; font-weight: 600; box-shadow: var(--shadow-md); animation: pop .3s var(--spring);
 }
@@ -464,7 +464,7 @@ dialog .form-error { margin: 12px 24px 0; }
 
 /* Toast */
 .toast {
-  position: fixed; left: 50%; bottom: calc(var(--composer-h, 24px) + 14px); transform: translateX(-50%); z-index: 50;
+  position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 50;
   display: inline-flex; align-items: center; gap: 8px; padding: 11px 16px; border-radius: 14px; width: max-content; max-width: calc(100vw - 32px);
   background: var(--ink); color: var(--bg); font-size: 14px; font-weight: 550; box-shadow: var(--shadow-lg); animation: toast .4s var(--spring);
 }
@@ -548,3 +548,13 @@ dialog .form-error { margin: 12px 24px 0; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
   .cans .pulse { display: none; }
 }
+
+/* Name-derived avatar colors use classes, never inline style attributes. */
+.avatar.hue-0 { --hue: 22; }
+.avatar.hue-1 { --hue: 67; }
+.avatar.hue-2 { --hue: 112; }
+.avatar.hue-3 { --hue: 157; }
+.avatar.hue-4 { --hue: 202; }
+.avatar.hue-5 { --hue: 247; }
+.avatar.hue-6 { --hue: 292; }
+.avatar.hue-7 { --hue: 337; }

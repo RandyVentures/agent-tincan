@@ -97,7 +97,10 @@ approval card and an approval queue in the side rail; approving still opens
 the review sheet and uses the one-use review tokens described below.
 "Follow up" starts a new ask whose text quotes a short excerpt of the earlier
 request and reply, because the relay has no thread for owner asks; the excerpt
-is visible in the review sheet like any other text. Appearance follows the
+is visible in the timeline and review sheet like any other text. Message prefixes
+are not treated as hidden metadata, including when the owner writes them manually.
+The composer validates the final UTF-8 body (including context) against 16 KiB
+and the existing JSON request envelope before sending. Appearance follows the
 system or a saved Light/Dark choice (stored in `localStorage`); an unsent
 draft is kept in `sessionStorage` and cleared on sign-out. The page loads no
 third-party assets; the only static files served are `index.html`, `app.js`,
@@ -144,6 +147,7 @@ and [CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Re
 go test -race ./internal/ownerweb ./internal/identity ./internal/relay ./internal/cli
 go vet ./...
 node --check internal/ownerweb/static/app.js
+node --test internal/ownerweb/ui_test.cjs
 ```
 
 The owner-web integration tests run the real relay, policy, SQLite storage and
