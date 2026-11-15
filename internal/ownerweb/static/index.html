@@ -2,42 +2,173 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="color-scheme" content="light dark">
-  <title>Tincan — Requests</title>
+  <meta name="theme-color" content="#f4f2ee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1013" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Tincan">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>Tincan</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
-  <script src="app.js" defer></script>
+  <!-- Not deferred: the first lines apply the saved theme before paint. -->
+  <script src="app.js"></script>
 </head>
 <body>
-  <header class="masthead"><a class="brand" href="./" aria-label="Tincan home"><span class="brand-mark" aria-hidden="true">t</span>Tincan</a><span id="mode" class="muted"></span><button id="sign-out" class="quiet" hidden>Sign out</button></header>
-  <div id="notice" class="notice" role="status" hidden></div>
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-logo" viewBox="0 0 32 32"><path d="M7 9.5v13c0 1.9 3.6 3.5 8 3.5s8-1.6 8-3.5v-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><ellipse cx="15" cy="9.5" rx="8" ry="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 15.5c0 1.9 3.6 3.5 8 3.5s8-1.6 8-3.5" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/><path class="logo-string" d="M15 9.5c4 0 6 3 9.5 3s3.5-4 5.5-4" fill="none" stroke="#e0481f" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-auto" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16m0 4v-4h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 5.5v-.5A1.5 1.5 0 0 0 14 3.5H6A2.5 2.5 0 0 0 3.5 6v8A1.5 1.5 0 0 0 5 15.5h.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-reply" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24"><path d="M15 4l5 5-5 5M20 9H9.5a5.5 5.5 0 0 0 0 11H13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5.5c0 4.3 3 8 7 9.5 4-1.5 7-5.2 7-9.5V6Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="m9 12 2.2 2.2L15.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3c.6 4.6 2.4 6.4 7 7-4.6.6-6.4 2.4-7 7-.6-4.6-2.4-6.4-7-7 4.6-.6 6.4-2.4 7-7Z" fill="currentColor"/></symbol>
+  </svg>
+
   <p id="live" class="sr-only" aria-live="polite"></p>
-  <main id="login-view" class="login-view">
-    <span class="eyebrow">YOUR WORKSPACE</span><h1>Sign in to Tincan</h1><p class="muted">Send requests to your agents and follow their replies.</p>
-    <form id="login-form">
-      <label for="password">Owner passphrase</label>
-      <input id="password" type="password" autocomplete="current-password" required maxlength="72">
-      <button id="sign-in" class="primary" type="submit">Sign in <span aria-hidden="true">↗</span></button>
-      <p id="login-error" class="error" role="alert" hidden></p>
-    </form>
-  </main>
-  <main id="workspace" class="workspace" hidden>
-    <aside class="history" aria-label="Request history">
-      <div class="history-heading"><h2>Requests</h2><button id="new-request" class="quiet" aria-label="New request">＋</button></div>
-      <p id="history-empty" class="empty">Your requests will appear here.</p><ol id="history-list"></ol>
-      <div class="history-footer"><span id="connection" role="status">Connecting…</span><button id="refresh" class="quiet">Refresh</button></div>
-    </aside>
-    <section class="thread" aria-label="Request workspace">
-      <header class="thread-heading"><div><span class="eyebrow">REQUESTS</span><h1 id="thread-title">What would you like done?</h1></div><span id="thread-state" class="status" hidden></span></header>
-      <div id="detail" class="detail" hidden><section class="message"><span class="speaker">You</span><p id="request-text"></p><span id="request-time" class="muted small"></span></section><section id="reply" class="message reply" hidden><span id="reply-name" class="speaker"></span><p id="reply-text"></p></section><p id="progress" class="muted" hidden></p><div id="held-actions" class="held-actions" hidden><p>This request is waiting for your approval.</p><button id="open-review" class="primary">Review request</button></div></div>
-      <form id="compose" class="compose">
-        <div class="recipient"><label for="target">To</label><select id="target" aria-describedby="target-hint"></select><span id="target-status" class="muted small"></span></div>
-        <label class="sr-only" for="request-body">Your request</label><textarea id="request-body" rows="5" maxlength="16384" placeholder="Write a request for your agent…" required></textarea>
-        <div class="compose-footer"><p id="target-hint" class="muted small">Requests may wait for your approval before delivery.</p><button id="send" class="primary" type="submit">Send request <span aria-hidden="true">↑</span></button></div>
+
+  <!-- ───────────── Sign in ───────────── -->
+  <main id="login-view" class="login" hidden>
+    <div class="login-art" aria-hidden="true">
+      <svg viewBox="0 0 360 120" class="cans">
+        <g class="can can-left"><path d="M38 40v44c0 6 11 11 25 11s25-5 25-11V40"/><ellipse cx="63" cy="40" rx="25" ry="10"/><path class="rim" d="M38 62c0 6 11 11 25 11s25-5 25-11"/></g>
+        <path class="string" d="M88 52C140 30 220 82 272 52"/>
+        <g class="can can-right"><path d="M272 40v44c0 6 11 11 25 11s25-5 25-11V40"/><ellipse cx="297" cy="40" rx="25" ry="10"/><path class="rim" d="M272 62c0 6 11 11 25 11s25-5 25-11"/></g>
+        <circle class="pulse" r="4"><animateMotion dur="2.6s" repeatCount="indefinite" path="M88 52C140 30 220 82 272 52"/></circle>
+      </svg>
+    </div>
+    <div class="login-card">
+      <span class="eyebrow">Private workspace</span>
+      <h1>Pick up where you left off.</h1>
+      <p class="lede">Talk to your agents, approve what they see, and follow every reply — from any device.</p>
+      <form id="login-form" novalidate>
+        <label for="password">Owner passphrase</label>
+        <div class="field">
+          <input id="password" type="password" autocomplete="current-password" required maxlength="72" spellcheck="false" autocapitalize="off">
+          <button id="peek" class="field-btn" type="button" aria-label="Show passphrase" aria-pressed="false"><svg><use href="#i-eye"/></svg></button>
+        </div>
+        <p id="login-error" class="form-error" role="alert" hidden></p>
+        <button id="sign-in" class="btn btn-primary btn-block" type="submit"><span>Sign in</span><svg class="arrow"><use href="#i-send"/></svg></button>
       </form>
-      <p id="request-error" class="error" role="alert" hidden></p>
-    </section>
+      <div class="login-foot">
+        <span class="mode-badge" data-mode-badge hidden></span>
+        <div class="theme-switch" role="radiogroup" aria-label="Appearance" data-theme-switch></div>
+      </div>
+    </div>
   </main>
-  <dialog id="review" aria-labelledby="review-heading"><div class="review-heading"><div><span class="eyebrow">BEFORE DELIVERY</span><h2 id="review-heading">Review this request</h2></div><button id="close-review" class="quiet" aria-label="Close review">×</button></div><p id="review-route" class="muted"></p><div id="review-body" class="review-body" tabindex="0"></div><p class="muted small">Approving releases this exact request to the agent.</p><p id="review-error" class="error" role="alert" hidden></p><div class="review-actions"><button id="deny" class="quiet">Deny request</button><button id="approve" class="primary">Approve and deliver</button></div></dialog>
+
+  <!-- ───────────── Workspace ───────────── -->
+  <div id="workspace" class="app" hidden>
+    <div id="scrim" class="scrim" hidden></div>
+    <aside id="rail" class="rail" aria-label="Conversations and approvals">
+      <div class="rail-head">
+        <a class="brand" href="./" aria-label="Tincan home"><svg class="brand-mark"><use href="#i-logo"/></svg><span>Tincan</span></a>
+        <button id="close-rail" class="icon-btn only-mobile" type="button" aria-label="Close menu"><svg><use href="#i-x"/></svg></button>
+      </div>
+
+      <section class="rail-section">
+        <h2 class="rail-label">Conversations</h2>
+        <ul id="conversations" class="convo-list"></ul>
+      </section>
+
+      <section id="approvals-section" class="rail-section" hidden>
+        <h2 class="rail-label">Needs your approval <span id="approvals-count" class="count"></span></h2>
+        <ul id="approvals" class="approval-list"></ul>
+      </section>
+
+      <div class="rail-foot">
+        <span class="mode-badge" data-mode-badge hidden></span>
+        <div class="theme-switch" role="radiogroup" aria-label="Appearance" data-theme-switch></div>
+        <div class="rail-actions">
+          <span id="connection" class="conn" role="status"><i></i><span>Connecting…</span></span>
+          <button id="sign-out" class="btn btn-ghost btn-sm" type="button"><svg><use href="#i-out"/></svg>Sign out</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="chat" aria-label="Conversation">
+      <header class="chat-head">
+        <button id="open-rail" class="icon-btn only-mobile" type="button" aria-label="Open menu" aria-controls="rail" aria-expanded="false"><svg><use href="#i-menu"/></svg><span id="menu-dot" class="menu-dot" hidden></span></button>
+        <div class="who">
+          <span id="head-avatar" class="avatar" aria-hidden="true"></span>
+          <div class="who-text">
+            <h1 id="head-name">Loading…</h1>
+            <p id="head-presence" class="presence"></p>
+          </div>
+        </div>
+        <div class="head-actions">
+          <button id="theme-cycle" class="icon-btn" type="button" aria-label="Change appearance"><svg><use href="#i-auto"/></svg></button>
+          <button id="refresh" class="icon-btn" type="button" aria-label="Refresh"><svg><use href="#i-refresh"/></svg></button>
+        </div>
+        <div id="loadbar" class="loadbar" aria-hidden="true"></div>
+      </header>
+
+      <div id="notice" class="notice" role="status" hidden></div>
+
+      <div id="timeline" class="timeline" tabindex="-1">
+        <div id="empty" class="empty" hidden>
+          <div class="empty-mark" aria-hidden="true"><svg><use href="#i-logo"/></svg></div>
+          <h2 id="empty-title">Start the conversation</h2>
+          <p id="empty-text">Every request lands here as one continuous thread — with approvals, progress and replies in line.</p>
+          <div id="starters" class="starters"></div>
+        </div>
+        <ol id="feed" class="feed" aria-label="Messages"></ol>
+        <div id="sending-slot"></div>
+        <button id="jump" class="jump" type="button" hidden><svg><use href="#i-down"/></svg><span>New activity</span></button>
+      </div>
+
+      <form id="compose" class="composer" novalidate>
+        <p id="request-error" class="compose-error" role="alert" hidden></p>
+        <div id="context" class="context" hidden>
+          <svg><use href="#i-reply"/></svg>
+          <div class="context-text"><strong>Following up</strong><span id="context-quote"></span></div>
+          <button id="clear-context" class="icon-btn icon-btn-sm" type="button" aria-label="Remove follow-up context"><svg><use href="#i-x"/></svg></button>
+        </div>
+        <div class="compose-box">
+          <label class="sr-only" for="request-body">Message</label>
+          <textarea id="request-body" rows="1" maxlength="16384" placeholder="Message…" enterkeyhint="enter"></textarea>
+          <button id="send" class="send" type="submit" aria-label="Send request"><svg><use href="#i-send"/></svg></button>
+        </div>
+        <div class="compose-meta">
+          <span id="target-hint"><svg><use href="#i-shield"/></svg><span>Requests may wait for your approval before delivery.</span></span>
+          <span class="keys only-desktop"><kbd id="mod-key">⌘</kbd><kbd>↵</kbd> to send</span>
+          <span id="count" class="char-count" hidden></span>
+        </div>
+      </form>
+    </main>
+  </div>
+
+  <!-- ───────────── Review ───────────── -->
+  <dialog id="review" class="sheet" aria-labelledby="review-heading">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <div class="sheet-head">
+      <div>
+        <span class="eyebrow eyebrow-warn"><svg><use href="#i-shield"/></svg>Before delivery</span>
+        <h2 id="review-heading">Review this request</h2>
+        <p id="review-route" class="route"></p>
+      </div>
+      <button id="close-review" class="icon-btn" type="button" aria-label="Close review"><svg><use href="#i-x"/></svg></button>
+    </div>
+    <div id="review-body" class="review-body" tabindex="0"></div>
+    <p class="fine">Approving releases this exact text to the agent. Nothing is delivered until you decide.</p>
+    <p id="review-error" class="form-error" role="alert" hidden></p>
+    <div class="sheet-actions">
+      <button id="deny" class="btn btn-ghost btn-danger" type="button"><svg><use href="#i-x"/></svg>Deny</button>
+      <button id="approve" class="btn btn-primary" type="button"><svg><use href="#i-check"/></svg>Approve &amp; deliver</button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
 </body>
 </html>
