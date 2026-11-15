@@ -18,9 +18,11 @@ function main() {
   const NS = 'http://www.w3.org/2000/svg';
   const root = new URL('./', location.href);
   const POLL_MS = 4000;
-  const MAX_BODY = 16000;
+  const MAX_BODY = 16384;
+  const encoder = new TextEncoder();
+  const byteLength = text => encoder.encode(text).length;
   const state = {
-    csrf: '', items: [], targets: [], target: null, busy: false, polling: false, connected: true,
+    epoch: 0, controllers: new Set(), reviewPending: false, csrf: '', items: [], targets: [], target: null, busy: false, polling: false, connected: true,
     submission: null, review: null, interval: null, followUp: null, loaded: false,
     nodes: new Map(), days: new Map(), expanded: new Set(), lastStatus: new Map(), fixture: false,
   };
@@ -204,7 +206,8 @@ function main() {
 
   /* ───────── API ───────── */
   async function api(path, body) {
-    const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 20000);
+    const epoch = state.epoch;
+    const ctl = new AbortController(); state.controllers.add(ctl); const timer = setTimeout(() => ctl.abort(), 20000);
     try {
       const res = await fetch(new URL('api/' + path, root), {
         method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store',
@@ -212,6 +215,7 @@ function main() {
         body: body === undefined ? undefined : JSON.stringify(body), signal: ctl.signal,
       });
       const data = await res.json().catch(() => ({}));
+      if (epoch !== state.epoch) throw Object.assign(new Error('Session changed.'), { cancelled: true });
       if (res.headers.get('X-Tincan-Test-Fixture') === '1' && !state.fixture) {
         state.fixture = true;
         for (const b of document.querySelectorAll('[data-mode-badge]')) { b.textContent = 'Local test · simulated Muse'; b.hidden = false; }
@@ -222,30 +226,44 @@ function main() {
       }
       return data;
     } catch (e) {
+      if (epoch !== state.epoch) throw Object.assign(new Error('Session changed.'), { cancelled: true });
       if (e.name === 'AbortError') throw Object.assign(new Error('The connection timed out. Check your conversation before sending again.'), { uncertain: true });
       throw e;
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); state.controllers.delete(ctl); }
   }
 
   /* ───────── Session ───────── */
   function signedOut() {
+    state.epoch++;
+    for (const ctl of state.controllers) ctl.abort();
+    state.controllers.clear();
+    state.busy = false; state.polling = false; state.connected = false; state.target = null; state.reviewPending = false;
     state.csrf = ''; state.items = []; state.targets = []; state.submission = null; state.review = null; state.followUp = null; state.loaded = false;
     state.nodes.clear(); state.days.clear(); state.expanded.clear(); state.lastStatus.clear();
     clearInterval(state.interval); state.interval = null;
     $('feed').replaceChildren(); $('sending-slot').replaceChildren(); $('conversations').replaceChildren(); $('approvals').replaceChildren();
-    for (const id of ['review-body', 'review-route', 'live']) $(id).textContent = '';
+    for (const id of ['review-body', 'review-route', 'review-error', 'live', 'head-name', 'head-presence', 'context-quote', 'approvals-count', 'count', 'login-error']) $(id).textContent = '';
     $('request-body').value = ''; clearDraft(); setContext(null); error('request-error', ''); notice('');
-    $('workspace').hidden = true; $('login-view').hidden = false; closeRail();
+    $('workspace').hidden = true; $('login-view').hidden = false; closeRail(false);
+    clearTimeout(toastTimer); $('toast').replaceChildren(); $('toast').hidden = true;
+    $('password').value = ''; $('password').type = 'password';
+    $('peek').setAttribute('aria-pressed', 'false'); $('peek').setAttribute('aria-label', 'Show passphrase');
+    $('sign-in').disabled = false; $('send').disabled = true;
+    $('approve').disabled = $('deny').disabled = true;
+    $('loadbar').classList.remove('on'); $('refresh').classList.remove('spinning');
     if ($('review').open) $('review').close();
     document.title = 'Tincan';
     requestAnimationFrame(() => $('password').focus());
   }
   async function signedIn() {
+    const epoch = state.epoch;
     const sess = await api('session');
+    if (epoch !== state.epoch) return;
     state.csrf = sess.csrf;
     $('login-view').hidden = true; $('workspace').hidden = false;
     restoreDraft();
     await refresh();
+    if (epoch !== state.epoch || !state.csrf) return;
     clearInterval(state.interval);
     state.interval = setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
     if (!isMobile()) $('request-body').focus();
@@ -254,20 +272,25 @@ function main() {
   async function refresh(manual) {
     if (state.polling || !state.csrf) return;
     state.polling = true;
-    const loadTimer = setTimeout(() => $('loadbar').classList.add('on'), manual ? 0 : 600);
+    const epoch = state.epoch;
+    const loadTimer = setTimeout(() => { if (epoch === state.epoch) $('loadbar').classList.add('on'); }, manual ? 0 : 600);
     if (manual) $('refresh').classList.add('spinning');
     try {
       const [agents, requests] = await Promise.all([api('targets'), api('requests')]);
+      if (epoch !== state.epoch) return;
       state.targets = agents.targets || [];
       state.items = (requests.requests || []).slice().sort((a, b) => new Date(a.request.created_at) - new Date(b.request.created_at));
       state.connected = true; setConn(true); notice('');
       render();
     } catch (e) {
-      if (state.csrf) { state.connected = false; setConn(false); notice(e.message); updateSend(); }
+      if (epoch === state.epoch && state.csrf) { state.connected = false; setConn(false); notice(e.message); updateSend(); }
     } finally {
-      clearTimeout(loadTimer); $('loadbar').classList.remove('on');
-      setTimeout(() => $('refresh').classList.remove('spinning'), 300);
-      state.polling = false;
+      clearTimeout(loadTimer);
+      if (epoch === state.epoch) {
+        $('loadbar').classList.remove('on');
+        setTimeout(() => { if (epoch === state.epoch) $('refresh').classList.remove('spinning'); }, 300);
+        state.polling = false;
+      }
     }
   }
   function setConn(ok) {
@@ -317,7 +340,7 @@ function main() {
       const when = last ? new Date((last.reply && last.reply.created_at) || last.request.created_at) : null;
       list.append(h('li', {}, h('button', {
         type: 'button', class: 'convo', 'aria-current': String(name === state.target),
-        onclick: () => { if (state.target !== name) { state.target = name; state.nodes.clear(); state.days.clear(); $('feed').replaceChildren(); state.loaded = false; render(); } closeRail(); $('request-body').focus({ preventScroll: true }); },
+        onclick: () => { if (state.target !== name) { state.target = name; setContext(null); state.nodes.clear(); state.days.clear(); $('feed').replaceChildren(); state.loaded = false; render(); } closeRail(); $('request-body').focus({ preventScroll: true }); },
       },
       avatar(name, '', presenceKey(targetInfo(name))),
       h('span', { class: 'convo-main' },
@@ -442,10 +465,7 @@ function main() {
     const li = h('li', { class: 'turn', 'data-id': id });
 
     // Your message
-    const fu = splitFollowUp(req.body);
-    const youBubble = h('div', { class: 'bubble bubble-you' },
-      fu ? h('div', { class: 'fu', title: fu.ctx }, icon('reply'), h('span', { text: fu.ctx })) : null,
-      rich(fu ? fu.text : req.body));
+    const youBubble = h('div', { class: 'bubble bubble-you' }, rich(req.body));
     li.append(h('div', { class: 'msg msg-you' }, h('div', { class: 'msg-body' },
       ...clampable(youBubble, id + ':q', req.body),
       h('div', { class: 'meta' },
@@ -535,8 +555,8 @@ function main() {
   const fieldSizing = typeof CSS !== 'undefined' && CSS.supports && CSS.supports('field-sizing', 'content');
   function autosize() {
     if (!fieldSizing) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, innerHeight * 0.4) + 'px'; }
-    const n = ta.value.length; const c = $('count');
-    c.hidden = n < 12000; c.textContent = n.toLocaleString() + ' / ' + MAX_BODY.toLocaleString(); c.classList.toggle('warn', n > 15000);
+    const n = byteLength(compose(ta.value.trim())); const c = $('count');
+    c.hidden = n < 12000; c.textContent = n.toLocaleString() + ' / ' + MAX_BODY.toLocaleString() + ' bytes'; c.classList.toggle('warn', n > 15000);
     updateSend();
   }
   function updateSend() {
@@ -564,35 +584,26 @@ function main() {
 
   // Follow-ups carry a quoted excerpt of the earlier exchange. The review
   // sheet shows that exact text; the timeline folds it into one line.
-  const FU = 'Follow-up to my earlier request:\n';
-  function splitFollowUp(body) {
-    if (!body.startsWith(FU)) return null;
-    const parts = body.split('\n\n');
-    let i = 1;
-    if (parts[1] && /^(You asked:|Your reply began:)\n> /.test(parts[1])) i = 2;
-    const text = parts.slice(i).join('\n\n');
-    if (!text.trim()) return null;
-    return { ctx: parts[0].slice(FU.length).split('\n').map(l => l.replace(/^> ?/, '')).join(' '), text };
-  }
-  const plain = body => { const f = splitFollowUp(body); return f ? f.text : body; };
+  const plain = body => body;
   function excerpt(text, n) { const t = text.replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t; }
   function followUp(it, question) {
-    setContext({ id: it.request.id, request: excerpt(it.request.body, 220), reply: question ? excerpt(question, 280) : it.reply ? excerpt(it.reply.body, 280) : '', question: !!question });
+    setContext({ id: it.request.id, target: it.request.to, request: excerpt(it.request.body, 220), reply: question ? excerpt(question, 280) : it.reply ? excerpt(it.reply.body, 280) : '', question: !!question });
     ta.focus();
   }
   function setContext(ctx) {
     state.followUp = ctx;
     $('context').hidden = !ctx;
-    if (ctx) $('context-quote').textContent = ctx.reply || ctx.request;
+    $('context-quote').textContent = ctx ? ctx.reply || ctx.request : '';
+    autosize();
   }
   $('clear-context').addEventListener('click', () => { setContext(null); ta.focus(); });
   function reuse(text) {
-    ta.value = text; autosize(); saveDraft(); ta.focus(); ta.setSelectionRange(text.length, text.length);
+    setContext(null); ta.value = text; autosize(); saveDraft(); ta.focus(); ta.setSelectionRange(text.length, text.length);
     toast('Copied into the composer — edit, then send', 'redo');
   }
   function compose(text) {
     const c = state.followUp;
-    if (!c) return text;
+    if (!c || c.target !== state.target) return text;
     const quote = s => s.split('\n').map(l => '> ' + l).join('\n');
     let out = 'Follow-up to my earlier request:\n' + quote(c.request);
     if (c.reply) out += '\n\n' + (c.question ? 'You asked:' : 'Your reply began:') + '\n' + quote(c.reply);
@@ -601,18 +612,24 @@ function main() {
 
   $('compose').addEventListener('submit', async e => {
     e.preventDefault();
-    if (state.busy) return;
+    if (state.busy || !state.csrf || !state.connected) return;
+    const epoch = state.epoch;
     const text = ta.value.trim(), target = state.target;
     if (!text || !target) return;
     const body = compose(text);
+    if (byteLength(body) > MAX_BODY) { error('request-error', 'Message including follow-up context exceeds 16 KiB. Shorten it before sending.'); return; }
+    // JSON escaping can exceed the existing 20 KiB request envelope even when the body fits.
+    if (byteLength(JSON.stringify({ target, body, submission_key: '0'.repeat(36) })) > 20 * 1024) { error('request-error', 'Message encoding is too large. Shorten it before sending.'); return; }
     const same = state.submission && state.submission.body === body && state.submission.target === target;
     if (same && state.submission.uncertain) { error('request-error', 'This request may already be in your conversation. Refresh and check it before creating another.'); return; }
     if (!same) state.submission = { key: crypto.randomUUID(), body, target, uncertain: false };
+    const submission = state.submission;
     state.busy = true; updateSend(); error('request-error', '');
     $('sending-slot').replaceChildren(h('div', { class: 'sending' }, h('div', { class: 'bubble bubble-you' }, rich(body)), h('div', { class: 'meta' }, h('span', { class: 'chip', text: 'Sending…' }))));
     scrollBottom(false);
     try {
-      const sent = await api('requests', { target, body, submission_key: state.submission.key });
+      const sent = await api('requests', { target, body, submission_key: submission.key });
+      if (epoch !== state.epoch) return;
       ta.value = ''; state.submission = null; clearDraft(); setContext(null); autosize();
       const msg = sent.status === 'held' ? 'Sent — waiting for your approval' : 'Sent to ' + cap(target);
       say(msg + '.'); toast(msg, sent.status === 'held' ? 'shield' : 'check');
@@ -620,22 +637,27 @@ function main() {
       await refresh();
       scrollBottom(false);
     } catch (err) {
+      if (epoch !== state.epoch) return;
       $('sending-slot').replaceChildren();
-      if (err.uncertain || !err.status || err.status === 409) state.submission.uncertain = true;
+      if (err.uncertain || !err.status || err.status === 409) submission.uncertain = true;
       error('request-error', err.message);
       await refresh();
     } finally {
-      state.busy = false; updateSend();
+      if (epoch === state.epoch) { state.busy = false; updateSend(); }
     }
   });
 
   /* ───────── Review ───────── */
   async function openReview(id) {
+    if (state.reviewPending || $('review').open || !state.csrf) return;
+    state.reviewPending = true;
+    const epoch = state.epoch;
     error('request-error', '');
     const btns = document.querySelectorAll('[data-review="' + CSS.escape(id) + '"]');
     btns.forEach(b => { b.disabled = true; });
     try {
       const review = await api('requests/' + encodeURIComponent(id) + '/review', {});
+      if (epoch !== state.epoch) return;
       state.review = { ...review, id };
       $('review-route').replaceChildren('You', ' → ', avatar(review.request.to), h('strong', { text: cap(review.request.to) }));
       $('review-body').textContent = review.request.body;
@@ -644,27 +666,30 @@ function main() {
       $('review').showModal();
       $('review-body').scrollTop = 0;
     } catch (e) {
-      error('request-error', e.message); await refresh();
-    } finally { btns.forEach(b => { b.disabled = false; }); }
+      if (epoch === state.epoch) { error('request-error', e.message); await refresh(); }
+    } finally { if (epoch === state.epoch) { state.reviewPending = false; btns.forEach(b => { b.disabled = false; }); } }
   }
   $('close-review').addEventListener('click', () => { $('review').close(); state.review = null; });
   $('review').addEventListener('click', e => { if (e.target === $('review')) { $('review').close(); } });
   $('review').addEventListener('close', () => { state.review = null; });
   async function decide(decision) {
     if (!state.review) return;
-    const review = state.review;
+    const review = state.review; const epoch = state.epoch;
+    state.review = null;
     $('approve').disabled = $('deny').disabled = true; error('review-error', '');
     try {
       await api('requests/' + encodeURIComponent(review.id) + '/decision', { decision, review_token: review[decision + '_token'] });
+      if (epoch !== state.epoch) return;
       $('review').close(); state.review = null;
       const msg = decision === 'approve' ? 'Approved — delivering to ' + cap(review.request.to) : 'Request denied';
       say(msg + '.'); toast(msg, decision === 'approve' ? 'check' : 'x');
       await refresh();
     } catch (e) {
+      if (epoch !== state.epoch) return;
       state.review = null;
       error('review-error', e.message + ' Close this review and refresh before trying again.');
       await refresh();
-    } finally { $('approve').disabled = $('deny').disabled = !state.review; }
+    } finally { if (epoch === state.epoch) $('approve').disabled = $('deny').disabled = !state.review; }
   }
   $('approve').addEventListener('click', () => decide('approve'));
   $('deny').addEventListener('click', () => decide('deny'));
@@ -679,7 +704,8 @@ function main() {
   /* ───────── Global controls ───────── */
   $('refresh').addEventListener('click', () => refresh(true));
   $('sign-out').addEventListener('click', async () => {
-    try { await api('logout', {}); signedOut(); toast('Signed out', 'out'); } catch (e) { notice(e.message); }
+    const epoch = state.epoch;
+    try { await api('logout', {}); if (epoch !== state.epoch) return; signedOut(); toast('Signed out', 'out'); } catch (e) { if (epoch === state.epoch) notice(e.message); }
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && $('workspace').classList.contains('rail-open')) { closeRail(); $('open-rail').focus(); }
@@ -699,18 +725,20 @@ function main() {
   });
   $('login-form').addEventListener('submit', async e => {
     e.preventDefault();
-    const pw = $('password');
+    const pw = $('password'); const epoch = state.epoch;
     if (!pw.value) { error('login-error', 'Enter your owner passphrase.'); pw.focus(); return; }
     $('sign-in').disabled = true; error('login-error', '');
     try {
       const auth = await api('login', { password: pw.value });
+      if (epoch !== state.epoch) return;
       pw.value = ''; pw.type = 'password'; state.csrf = auth.csrf;
       await signedIn();
     } catch (err) {
+      if (epoch !== state.epoch) return;
       error('login-error', err.message);
       const card = document.querySelector('.login-card'); card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
       pw.select();
-    } finally { $('sign-in').disabled = false; }
+    } finally { if (epoch === state.epoch) $('sign-in').disabled = false; }
   });
 
   signedIn().catch(() => signedOut());
