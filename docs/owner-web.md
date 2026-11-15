@@ -88,6 +88,21 @@ policy. Existing requests remain in the relay. To remove the owner identity
 too, explicitly run `tincan remove owner-web` on an admin device or local
 socket. Keep the submission ledger: dropping it can lose duplicate protection.
 
+## Workspace interface
+
+The browser UI (`internal/ownerweb/static/`) presents each configured target
+as one ongoing conversation: requests, approval prompts, progress and replies
+appear in order with a persistent composer. Held requests show an inline
+approval card and an approval queue in the side rail; approving still opens
+the review sheet and uses the one-use review tokens described below.
+"Follow up" starts a new ask whose text quotes a short excerpt of the earlier
+request and reply, because the relay has no thread for owner asks; the excerpt
+is visible in the review sheet like any other text. Appearance follows the
+system or a saved Light/Dark choice (stored in `localStorage`); an unsent
+draft is kept in `sessionStorage` and cleared on sign-out. The page loads no
+third-party assets; the only static files served are `index.html`, `app.js`,
+`style.css` and `icon.svg`.
+
 ## Security and delivery behavior
 
 - Passphrases are checked with bcrypt; login is globally limited to five
@@ -101,7 +116,11 @@ socket. Keep the submission ledger: dropping it can lose duplicate protection.
 - The configured Host is checked on every route. Changes require the exact
   Origin, JSON, a same-origin UI header and a per-session CSRF token. Scripts
   and connections are restricted to the app's origin; no third-party assets
-  or analytics are loaded. All request and reply text is rendered as text.
+  or analytics are loaded. Request and reply text is never parsed as HTML:
+  the timeline builds DOM text nodes, formatting a small Markdown subset
+  (paragraphs, lists, quotes, code, bold, and http(s) links opened with
+  `rel="noopener noreferrer"`). The review sheet always shows the exact raw
+  text being approved.
 - A held request is fetched in full before review. Approve and deny each need
   a separate short-lived one-use token bound to the session, request, decision
   and body hash. Attachments and follow-on requests require the existing admin

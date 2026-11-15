@@ -336,6 +336,21 @@ func TestOwnerWebAuthenticationAndScope(t *testing.T) {
 	}
 }
 
+func TestOwnerWebServesOnlyItsOwnAssets(t *testing.T) {
+	e := webSetup(t)
+	for path, ctype := range map[string]string{"/app.js": "text/javascript", "/style.css": "text/css", "/icon.svg": "image/svg+xml"} {
+		code, _, resp := e.request(t, "GET", path, nil)
+		if code != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), ctype) {
+			t.Fatalf("%s = %d %q", path, code, resp.Header.Get("Content-Type"))
+		}
+	}
+	for _, path := range []string{"/server.go", "/static/app.js", "/../go.mod", "/favicon.ico"} {
+		if code, _, _ := e.request(t, "GET", path, nil); code != 404 {
+			t.Fatalf("unlisted asset %s = %d", path, code)
+		}
+	}
+}
+
 func TestOwnerWebRejectsCrossOriginAndRebinding(t *testing.T) {
 	e := webSetup(t)
 	for _, tc := range []struct{ host, origin, contentType, fetchSite string }{
