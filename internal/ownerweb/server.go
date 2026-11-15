@@ -146,7 +146,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if path == "" {
 			path = "index.html"
 		}
-		if path != "index.html" && path != "app.js" && path != "style.css" {
+		if path != "index.html" && path != "app.js" && path != "style.css" && path != "icon.svg" {
 			http.NotFound(w, r)
 			return
 		}
@@ -161,6 +161,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if path == "style.css" {
 			ctype = "text/css; charset=utf-8"
+		}
+		if path == "icon.svg" {
+			ctype = "image/svg+xml"
 		}
 		h.Set("Content-Type", ctype)
 		w.Write(body)
