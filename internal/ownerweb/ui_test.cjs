@@ -75,4 +75,56 @@ test('follow-up context cannot leak to another target',()=>{const h=harness();h.
 test('late successful send cannot repopulate toast or live text after sign-out',async()=>{const d=deferred();const h=harness(()=>d.promise);h.el('request-body').value='private send';const pending=h.el('compose').fire('submit');h.ui.signedOut();d.resolve(response({id:'test',status:'held'}));await pending;assert.equal(h.el('live').textContent,'');assert.equal(h.el('toast').textContent,'');});
 test('late network failure after sign-out does not access a cleared submission',async()=>{const d=deferred();const h=harness(()=>d.promise);h.el('request-body').value='private send';const pending=h.el('compose').fire('submit');h.ui.signedOut();d.reject(new Error('Network disconnected'));await pending;assert.equal(h.ui.state.submission,null);});
 
-test('typing the next message during a send preserves the new draft',async()=>{const d=deferred();const h=harness(async(_,o)=>o.method==='POST'?d.promise:response({targets:h.ui.state.targets,requests:[]}));h.el('request-body').value='first message';const pending=h.el('compose').fire('submit');h.el('request-body').value='next message';await h.el('request-body').fire('input');d.resolve(response({id:'id',status:'held'}));await pending;assert.equal(h.el('request-body').value,'next message');assert.equal(h.storage.get('tincan-draft'),'next message');});
+test('typing the next message during a send preserves the new draft',async()=>{const d=deferred();const h=harness(async(_,o)=>o.method==='POST'?d.promise:response({targets:h.ui.state.targets,requests:[]}));h.el('request-body').value='first message';const pending=h.el('compose').fire('submit');h.el('request-body').value='next message';await h.el('request-body').fire('input');d.resolve(response({id:'id',status:'held'}));await pending;assert.equal(h.el('request-body').value,'next message');assert.deepEqual(JSON.parse(h.storage.get('tincan-conversation-drafts')),[['muse','next message']]);});
+
+function openConversation(h, name) {
+  const button = descendants(h.el('conversations')).find(n => n.dataset.conversation === name);
+  assert.ok(button);
+  return button.fire('click');
+}
+
+test('switching recipients keeps unsent drafts in their own chat', async () => {
+  const h = harness();
+  h.ui.state.targets.push({name:'dot-web', online:true});
+  h.ui.render();
+  const composer = h.el('request-body');
+  composer.value = 'Muse draft only';
+  await composer.fire('input');
+  await openConversation(h, 'dot-web');
+  assert.equal(composer.value, '');
+  composer.value = 'Dot draft only';
+  await composer.fire('input');
+  await openConversation(h, 'muse');
+  assert.equal(composer.value, 'Muse draft only');
+  await openConversation(h, 'dot-web');
+  assert.equal(composer.value, 'Dot draft only');
+});
+
+test('a pending send stays with its recipient when switching chats', async () => {
+  const pending = deferred();
+  const posted = [];
+  const h = harness(async (_, options) => {
+    if (options.method === 'POST') {
+      posted.push(JSON.parse(options.body).target);
+      return pending.promise;
+    }
+    return response({targets:h.ui.state.targets, requests:[]});
+  });
+  h.ui.state.targets.push({name:'dot-web', online:true});
+  h.ui.render();
+  const composer = h.el('request-body');
+  composer.value = 'To Muse only';
+  await composer.fire('input');
+  const send = h.el('compose').fire('submit');
+  await openConversation(h, 'dot-web');
+  const preview = h.el('sending-slot');
+  assert.ok(preview.hidden || !preview.textContent.includes('To Muse only'));
+  composer.value = 'Unsent Dot draft';
+  await composer.fire('input');
+  pending.resolve(response({id:'id',status:'pending'}));
+  await send;
+  assert.deepEqual(posted, ['muse']);
+  assert.equal(composer.value, 'Unsent Dot draft');
+  await openConversation(h, 'muse');
+  assert.equal(composer.value, '');
+});
