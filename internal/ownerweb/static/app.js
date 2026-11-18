@@ -255,7 +255,7 @@ function main() {
     clearInterval(state.interval); state.interval = null;
     $('feed').replaceChildren(); $('sending-slot').replaceChildren(); $('conversations').replaceChildren(); $('approvals').replaceChildren();
     for (const id of ['review-body', 'review-route', 'review-error', 'live', 'head-name', 'head-presence', 'context-quote', 'approvals-count', 'count', 'login-error']) $(id).textContent = '';
-    $('request-body').value = ''; clearDraft(); setContext(null); error('request-error', ''); notice('');
+    $('request-body').value = ''; clearDrafts(); setContext(null); error('request-error', ''); notice('');
     $('workspace').hidden = true; $('login-view').hidden = false; closeRail(false);
     clearTimeout(toastTimer); $('toast').replaceChildren(); $('toast').hidden = true;
     $('password').value = ''; $('password').type = 'password';
@@ -273,7 +273,7 @@ function main() {
     if (epoch !== state.epoch) return;
     state.csrf = sess.csrf;
     $('login-view').hidden = true; $('workspace').hidden = false;
-    restoreDraft();
+    restoreDrafts();
     await refresh();
     if (epoch !== state.epoch || !state.csrf) return;
     clearInterval(state.interval);
@@ -325,9 +325,23 @@ function main() {
   const agentReply = it => it.reply && it.reply.from !== 'relay' && it.reply.body.trim() ? it.reply : null;
   const relayReply = it => it.reply && it.reply.from === 'relay' && it.reply.body.trim() ? it.reply.body.trim() : '';
 
+  function selectTarget(name) {
+    if (state.target === name) return;
+    saveDraft();
+    state.target = name;
+    ta.value = drafts.get(name) || '';
+    setContext(null);
+    error('request-error', '');
+    $('sending-slot').hidden = state.submission?.target !== name;
+    state.nodes.clear();
+    state.days.clear();
+    $('feed').replaceChildren();
+    state.loaded = false;
+  }
+
   function render() {
     const names = targetNames();
-    if (!names.includes(state.target)) state.target = names[0] || null;
+    if (!names.includes(state.target)) selectTarget(names[0] || null);
     renderRail(names);
     renderHead();
     renderFeed();
@@ -357,7 +371,7 @@ function main() {
       const when = last ? new Date((last.reply && last.reply.created_at) || last.request.created_at) : null;
       list.append(h('li', {}, h('button', {
         type: 'button', class: 'convo', 'data-conversation': name, 'aria-current': String(name === state.target),
-        onclick: () => { if (state.target !== name) { state.target = name; setContext(null); state.nodes.clear(); state.days.clear(); $('feed').replaceChildren(); state.loaded = false; render(); } closeRail(); $('request-body').focus({ preventScroll: true }); },
+        onclick: () => { if (state.target !== name) { selectTarget(name); render(); } closeRail(); $('request-body').focus({ preventScroll: true }); },
       },
       avatar(name, '', presenceKey(targetInfo(name))),
       h('span', { class: 'convo-main' },
@@ -562,7 +576,7 @@ function main() {
     if (tl.scrollHeight - tl.scrollTop - tl.clientHeight < 60) $('jump').hidden = true;
   }, { passive: true });
   function focusTurn(it) {
-    if (state.target !== it.request.to) { state.target = it.request.to; state.nodes.clear(); state.days.clear(); $('feed').replaceChildren(); state.loaded = false; render(); }
+    if (state.target !== it.request.to) { selectTarget(it.request.to); render(); }
     const el = $('feed').querySelector('[data-id="' + CSS.escape(it.request.id) + '"]');
     if (!el) return;
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -591,10 +605,33 @@ function main() {
       : 'Requests may wait for your approval before delivery.';
     ta.placeholder = state.target ? 'Message ' + cap(state.target) + '…' : 'Message…';
   }
-  const DRAFT = 'tincan-draft';
-  function saveDraft() { try { sessionStorage.setItem(DRAFT, ta.value); } catch { /* ignore */ } }
-  function clearDraft() { try { sessionStorage.removeItem(DRAFT); } catch { /* ignore */ } }
-  function restoreDraft() { try { const d = sessionStorage.getItem(DRAFT); if (d && !ta.value) ta.value = d; } catch { /* ignore */ } autosize(); }
+  const DRAFTS = 'tincan-conversation-drafts';
+  const drafts = new Map();
+  function writeDraft(target, value) {
+    if (!target) return;
+    if (value) drafts.set(target, value);
+    else drafts.delete(target);
+    try {
+      if (drafts.size) sessionStorage.setItem(DRAFTS, JSON.stringify([...drafts]));
+      else sessionStorage.removeItem(DRAFTS);
+    } catch { /* Keep drafts in memory if storage is unavailable. */ }
+  }
+  function saveDraft() { writeDraft(state.target, ta.value); }
+  function clearDrafts() {
+    drafts.clear();
+    try {
+      sessionStorage.removeItem(DRAFTS);
+      sessionStorage.removeItem('tincan-draft');
+    } catch { /* ignore */ }
+  }
+  function restoreDrafts() {
+    try {
+      const entries = JSON.parse(sessionStorage.getItem(DRAFTS) || '[]');
+      for (const [target, value] of entries) {
+        if (typeof target === 'string' && typeof value === 'string') drafts.set(target, value);
+      }
+    } catch { /* ignore invalid or inaccessible storage */ }
+  }
   ta.addEventListener('input', () => { error('request-error', ''); autosize(); saveDraft(); });
   ta.addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('compose').requestSubmit(); }
@@ -644,6 +681,7 @@ function main() {
     if (!same) state.submission = { key: crypto.randomUUID(), body, target, uncertain: false };
     const submission = state.submission;
     state.busy = true; updateSend(); error('request-error', '');
+    $('sending-slot').hidden = false;
     $('sending-slot').replaceChildren(h('div', { class: 'sending' }, h('div', { class: 'bubble bubble-you' }, rich(body)), h('div', { class: 'meta' }, h('span', { class: 'chip', text: 'Sending…' }))));
     scrollBottom(false);
     try {
@@ -651,7 +689,9 @@ function main() {
       if (epoch !== state.epoch) return;
       state.submission = null;
       if (ta.value === draft && state.followUp === context && state.target === target) {
-        ta.value = ''; clearDraft(); setContext(null);
+        ta.value = ''; writeDraft(target, ''); setContext(null);
+      } else if (state.target !== target && drafts.get(target) === draft) {
+        writeDraft(target, '');
       }
       autosize();
       const msg = sent.status === 'held' ? 'Sent — waiting for your approval' : 'Sent to ' + cap(target);
