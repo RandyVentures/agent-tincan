@@ -219,7 +219,9 @@ export const SELECTORS = Object.freeze({
   // composer with text in it is left alone (keepDraft). The page has no
   // answering marks; the reply is read from the room feed by the Go side.
   dots: Object.freeze({
-    composer: ['div[role="textbox"][aria-label="Message"]', 'div.ProseMirror[contenteditable="true"][aria-label="Message"]'],
+    // The Dot page initially labels a non-editable placeholder "Message".
+    // Both the readiness probe and the fill must wait for the actual editor.
+    composer: ['div[role="textbox"][aria-label="Message"][contenteditable="true"]', 'div.ProseMirror[contenteditable="true"][aria-label="Message"]'],
     send: ['button[aria-label="Send"]'],
     stop: [],
     streaming: [],
@@ -1009,7 +1011,9 @@ export function createSender({
         loadBy: Math.min(deadline, start + loadMs),
         late,
         ready: (p) => p.composer,
-        notReady: (p) => new OpError('composer_not_found', 'no message box on the page' + pageState(p)),
+        notReady: (p) => new OpError('composer_not_found', site === 'dots'
+          ? 'the Dot message box did not become editable; nothing was sent'
+          : 'no message box on the page' + pageState(p)),
         restart: () => Math.min(deadline, now() + loadMs),
         seen: (p) => {
           if (p.notice) notice = p.notice;

@@ -1819,6 +1819,22 @@ test('the chatgpt turn selectors still count the older data-message-author-role 
   assert.equal(p.assistantCount, 1);
 });
 
+test('dots waits for the Message placeholder to become an editable DM composer', () => {
+  const page = (attribute) => `<main><div role="textbox" aria-label="Message" ${attribute}></div><button aria-label="Send" disabled></button></main>`;
+  for (const attribute of ['', 'contenteditable="false"']) {
+    const html = page(attribute);
+    assert.equal(probeHTML('dots', html, DOT_PAGE).composer, false);
+    const saved = globalThis.document;
+    try {
+      globalThis.document = parseHTML(html);
+      assert.equal(pageFill(SELECTORS.dots, 'test input').code, 'composer_not_found');
+    } finally {
+      globalThis.document = saved;
+    }
+  }
+  assert.equal(probeHTML('dots', page('contenteditable="true"'), DOT_PAGE).composer, true);
+});
+
 test('the dots selectors match the DM page markup', () => {
   const html = `<html><body><main><div class="ProseMirror" contenteditable="true" role="textbox" aria-label="Message"><p>draft</p></div><button aria-label="Send">Send</button></main></body></html>`;
   const saved = { document: globalThis.document, location: globalThis.location };
