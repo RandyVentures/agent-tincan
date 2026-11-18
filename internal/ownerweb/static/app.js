@@ -25,6 +25,7 @@ function main() {
     epoch: 0, controllers: new Set(), reviewPending: false, csrf: '', items: [], targets: [], target: null, busy: false, polling: false, connected: true,
     submission: null, review: null, interval: null, followUp: null, loaded: false,
     nodes: new Map(), days: new Map(), expanded: new Set(), lastStatus: new Map(), fixture: false,
+    view: 'home', tab: 'agents',
   };
 
   const STATUS = {
@@ -256,7 +257,8 @@ function main() {
     $('feed').replaceChildren(); $('sending-slot').replaceChildren(); $('conversations').replaceChildren(); $('approvals').replaceChildren();
     for (const id of ['review-body', 'review-route', 'review-error', 'live', 'head-name', 'head-presence', 'context-quote', 'approvals-count', 'count', 'login-error']) $(id).textContent = '';
     $('request-body').value = ''; clearDrafts(); setContext(null); error('request-error', ''); notice('');
-    $('workspace').hidden = true; $('login-view').hidden = false; closeRail(false);
+    for (const id of ['summary', 'activity']) $(id).replaceChildren();
+    $('workspace').hidden = true; $('login-view').hidden = false; resetNav();
     clearTimeout(toastTimer); $('toast').replaceChildren(); $('toast').hidden = true;
     $('password').value = ''; $('password').type = 'password';
     $('peek').setAttribute('aria-pressed', 'false'); $('peek').setAttribute('aria-label', 'Show passphrase');
@@ -348,7 +350,10 @@ function main() {
     updateSend();
     const n = held().length;
     document.title = (n ? '(' + n + ') ' : '') + 'Tincan' + (state.target ? ' · ' + cap(state.target) : '');
-    $('menu-dot').hidden = !n;
+    const elsewhere = state.items.filter(i => i.status === 'held' && i.request.to !== state.target).length;
+    $('menu-dot').textContent = elsewhere ? String(elsewhere) : ''; $('menu-dot').hidden = !elsewhere;
+    $('back').setAttribute('aria-label', 'Back to agents' + (elsewhere ? ', ' + elsewhere + ' waiting for approval' : ''));
+    $('tab-badge').textContent = n ? String(n) : ''; $('tab-badge').hidden = !n;
     refreshTimes();
     state.loaded = true;
   }
@@ -360,6 +365,18 @@ function main() {
     state.railSig = sig;
     const focused = document.activeElement;
     const focusTarget = focused?.dataset.conversation; const focusReview = focused?.dataset.review;
+    const oneLine = text => text.replace(/\s+/g, ' ').trim();
+    const pend = held();
+    const active = state.items.filter(i => ACTIVE.has(i.status) && i.status !== 'held').slice().reverse();
+
+    // Overview pills: who is listening, what is in flight, what waits on you.
+    const online = names.filter(n => presenceKey(targetInfo(n)) !== 'offline').length;
+    const pills = [];
+    if (names.length) pills.push(h('button', { type: 'button', class: 'pill on', onclick: () => setTab('agents', true) }, h('i'), online + '/' + names.length + ' online'));
+    if (active.length) pills.push(h('button', { type: 'button', class: 'pill work', onclick: () => showInbox('activity-section') }, h('i'), active.length + ' active'));
+    if (pend.length) pills.push(h('button', { type: 'button', class: 'pill warn', onclick: () => showInbox('approvals-section') }, h('i'), pend.length + ' to approve'));
+    $('summary').replaceChildren(...pills);
+
     const list = $('conversations'); list.replaceChildren();
     for (const name of names) {
       const items = state.items.filter(i => i.request.to === name);
@@ -371,25 +388,55 @@ function main() {
       const when = last ? new Date((last.reply && last.reply.created_at) || last.request.created_at) : null;
       list.append(h('li', {}, h('button', {
         type: 'button', class: 'convo', 'data-conversation': name, 'aria-current': String(name === state.target),
-        onclick: () => { if (state.target !== name) { selectTarget(name); render(); } closeRail(); $('request-body').focus({ preventScroll: true }); },
+        onclick: () => openChat(name),
       },
       avatar(name, '', presenceKey(targetInfo(name))),
       h('span', { class: 'convo-main' },
         h('span', { class: 'convo-name' }, h('span', { text: cap(name) }), when ? h('time', { 'data-short': when.toISOString(), text: short(when) }) : null),
-        h('span', { class: 'convo-preview', text: preview.replace(/\s+/g, ' ').slice(0, 90) })),
-      pending ? h('span', { class: 'count', text: String(pending), 'aria-label': pending + ' waiting for approval' }) : null)));
+        last && ACTIVE.has(last.status)
+          ? h('span', { class: 'convo-preview' }, h('b', { class: 'pv pv-' + (STATUS[last.status] || { tone: 'gray' }).tone, text: last.status === 'claimed' ? 'Working' : STATUS[last.status].label }),
+            ' · ' + oneLine((last.progress && last.progress.note) || plain(last.request.body)).slice(0, 140))
+          : h('span', { class: 'convo-preview', text: oneLine(preview).slice(0, 140) })),
+      pending ? h('span', { class: 'count', text: String(pending), 'aria-label': pending + ' waiting for approval' }) : null,
+      chevron())));
     }
-    const pend = held();
+
     $('approvals-section').hidden = !pend.length;
     $('approvals-count').textContent = pend.length || '';
     const ap = $('approvals'); ap.replaceChildren();
     for (const it of pend.slice().reverse()) {
-      ap.append(h('li', {}, h('button', { type: 'button', class: 'approval', 'data-review': it.request.id, onclick: () => { closeRail(); focusTurn(it); openReview(it.request.id); } },
-        h('strong', { text: plain(it.request.body).replace(/\s+/g, ' ').slice(0, 80) }),
-        h('span', { text: 'To ' + cap(it.request.to) + ' · Review now →' }))));
+      const name = it.request.to, at = new Date(it.request.created_at);
+      ap.append(h('li', {}, h('div', { class: 'appr' },
+        h('div', { class: 'appr-head' }, avatar(name, 'avatar-sm'), h('strong', { text: cap(name) }), h('time', { 'data-short': at.toISOString(), text: short(at) })),
+        h('p', { class: 'appr-text', text: oneLine(plain(it.request.body)) }),
+        h('div', { class: 'appr-actions' },
+          h('button', { type: 'button', class: 'btn btn-primary', 'data-review': it.request.id, onclick: () => openReview(it.request.id) }, icon('shield'), 'Review'),
+          h('button', { type: 'button', class: 'btn btn-ghost', onclick: () => openChat(name, it) }, 'Open chat')))));
     }
+
+    $('activity-section').hidden = !active.length;
+    const act = $('activity'); act.replaceChildren();
+    for (const it of active) {
+      const name = it.request.to;
+      act.append(h('li', {}, h('button', { type: 'button', class: 'act', onclick: () => openChat(name, it) },
+        avatar(name, 'avatar-sm', presenceKey(targetInfo(name))),
+        h('span', { class: 'act-main' },
+          h('span', { class: 'act-top' }, h('span', { text: cap(name) }), chip(it.status, true)),
+          h('span', { class: 'act-text', text: (it.progress && it.progress.note) || oneLine(plain(it.request.body)) })),
+        h('time', { 'data-elapsed': it.request.created_at, title: 'Time since sent' }))));
+    }
+    $('workspace').classList.toggle('inbox-clear', !pend.length && !active.length);
+
     const key = focusTarget ? '[data-conversation="' + CSS.escape(focusTarget) + '"]' : focusReview ? '[data-review="' + CSS.escape(focusReview) + '"]' : null;
-    if (key) ($('rail').querySelector(key) || $('close-rail')).focus({ preventScroll: true });
+    const again = key && $('rail').querySelector(key);
+    if (again) again.focus({ preventScroll: true });
+  }
+
+  // Phone: jump to the Approvals tab. Wide: the section is already in the rail.
+  function showInbox(sectionId) {
+    if (isMobile()) { if (state.view === 'chat') goHome(); setTab('approvals'); }
+    const sec = $(sectionId);
+    if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 
   function renderHead() {
@@ -468,7 +515,8 @@ function main() {
     } })];
   }
 
-  function chip(status) { const s = STATUS[status] || { label: status, tone: 'gray' }; return h('span', { class: 'chip t-' + s.tone, text: s.label }); }
+  function chip(status, small) { const s = STATUS[status] || { label: status, tone: 'gray' }; return h('span', { class: 'chip t-' + s.tone + (small ? ' chip-sm' : ''), text: s.label }); }
+  function chevron() { const c = icon('chev'); c.setAttribute('class', 'chev'); return c; }
 
   function track(it) {
     const name = cap(it.request.to), t = targetInfo(it.request.to), online = presenceKey(t) !== 'offline';
@@ -757,28 +805,82 @@ function main() {
   $('approve').addEventListener('click', () => decide('approve'));
   $('deny').addEventListener('click', () => decide('deny'));
 
-  /* ───────── Rail (mobile drawer) ───────── */
-  function openRail() {
-    if (!isMobile()) return;
-    $('workspace').classList.add('rail-open'); $('scrim').hidden = false;
-    $('rail').setAttribute('role', 'dialog'); $('rail').setAttribute('aria-modal', 'true');
-    document.querySelector('.chat').setAttribute('inert', '');
-    document.querySelector('.chat').setAttribute('aria-hidden', 'true');
-    $('open-rail').setAttribute('aria-expanded', 'true'); $('close-rail').focus();
+  /* ───────── Navigation (phone: Home tabs → pushed Conversation) ─────────
+   * Wide screens show the rail and conversation side by side; at phone width
+   * the same two regions become a navigation stack. A push adds a history
+   * entry, so Safari's edge swipe and the browser Back button pop it. */
+  const TABS = { agents: 'Agents', approvals: 'Approvals', settings: 'Settings' };
+  const hasHistory = typeof history !== 'undefined' && typeof history.pushState === 'function';
+  function setTab(tab, toTop) {
+    state.tab = tab;
+    const w = $('workspace');
+    for (const t of Object.keys(TABS)) w.classList.toggle('tab-' + t, t === tab);
+    $('home-title').textContent = TABS[tab]; $('home-mini').textContent = TABS[tab];
+    for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false');
+    if (toTop) $('rail-scroll').scrollTo({ top: 0, behavior: 'smooth' });
   }
-  function closeRail(restoreFocus = true) {
-    const wasOpen = $('workspace').classList.contains('rail-open');
-    $('workspace').classList.remove('rail-open'); $('scrim').hidden = true;
-    $('rail').removeAttribute('role'); $('rail').removeAttribute('aria-modal');
-    document.querySelector('.chat').removeAttribute('inert');
-    document.querySelector('.chat').removeAttribute('aria-hidden');
-    $('open-rail').setAttribute('aria-expanded', 'false');
-    if (wasOpen && restoreFocus && !$('workspace').hidden) $('open-rail').focus();
+  function setView(view) {
+    state.view = view;
+    const w = $('workspace'), chat = $('chat'), rail = $('rail');
+    w.classList.toggle('view-chat', view === 'chat');
+    w.classList.toggle('view-home', view !== 'chat');
+    chat.removeAttribute('inert'); rail.removeAttribute('inert');
+    if (isMobile()) (view === 'chat' ? rail : chat).setAttribute('inert', '');
   }
-  matchMedia('(max-width: 820px)').addEventListener('change', () => { if (!isMobile()) closeRail(false); });
-  $('open-rail').addEventListener('click', openRail);
-  $('close-rail').addEventListener('click', closeRail);
-  $('scrim').addEventListener('click', closeRail);
+  function openChat(name, item) {
+    if (state.target !== name) { selectTarget(name); render(); }
+    const pushed = state.view === 'chat';
+    setView('chat');
+    if (isMobile() && !pushed && hasHistory) history.pushState({ tincan: 'chat' }, '');
+    if (item) focusTurn(item);
+    else if (isMobile()) scrollBottom(true);
+    else ta.focus({ preventScroll: true });
+  }
+  function goHome() {
+    if (hasHistory && history.state && history.state.tincan === 'chat') history.back();
+    else setView('home');
+  }
+  function resetNav() {
+    setTab('agents'); setView('home');
+    if (hasHistory && history.state && history.state.tincan) history.replaceState(null, '');
+  }
+  if (typeof window !== 'undefined') window.addEventListener('popstate', e => setView(e.state && e.state.tincan === 'chat' && state.csrf ? 'chat' : 'home'));
+  // Folding or rotating keeps the open conversation; only inertness changes.
+  matchMedia('(max-width: 820px)').addEventListener('change', () => setView(state.view));
+  $('back').addEventListener('click', goHome);
+  for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('click', () => setTab(b.dataset.tab, state.tab === b.dataset.tab));
+  $('refresh-row').addEventListener('click', () => refresh(true));
+
+  // Large title collapses into the nav bar; pull down at the top to refresh.
+  const scroller = $('rail-scroll'), rail = $('rail');
+  scroller.addEventListener('scroll', () => rail.classList.toggle('scrolled', scroller.scrollTop > 30), { passive: true });
+  let pullFrom = null;
+  scroller.addEventListener('touchstart', e => { pullFrom = isMobile() && scroller.scrollTop <= 0 && !rail.classList.contains('refreshing') ? e.touches[0].clientY : null; }, { passive: true });
+  scroller.addEventListener('touchmove', e => {
+    if (pullFrom == null) return;
+    const dy = e.touches[0].clientY - pullFrom;
+    rail.classList.toggle('pulling', dy > 14); rail.classList.toggle('armed', dy > 84);
+  }, { passive: true });
+  scroller.addEventListener('touchend', () => {
+    const armed = rail.classList.contains('armed');
+    rail.classList.remove('pulling', 'armed'); pullFrom = null;
+    if (!armed) return;
+    rail.classList.add('refreshing');
+    Promise.resolve(refresh(true)).finally(() => setTimeout(() => rail.classList.remove('refreshing'), 350));
+  });
+
+  // Installed to the Home Screen there is no browser swipe-back, so add one.
+  const standalone = (typeof navigator !== 'undefined' && navigator.standalone) || matchMedia('(display-mode: standalone)').matches;
+  if (standalone) {
+    let edge = null;
+    $('chat').addEventListener('touchstart', e => { const t = e.touches[0]; edge = isMobile() && t.clientX < 28 ? { x: t.clientX, y: t.clientY } : null; }, { passive: true });
+    $('chat').addEventListener('touchmove', e => { if (edge) $('workspace').classList.toggle('swiping', e.touches[0].clientX - edge.x > 30); }, { passive: true });
+    $('chat').addEventListener('touchend', e => {
+      const t = e.changedTouches[0]; $('workspace').classList.remove('swiping');
+      if (edge && t.clientX - edge.x > 80 && Math.abs(t.clientY - edge.y) < 80) goHome();
+      edge = null;
+    });
+  }
 
   /* ───────── Global controls ───────── */
   $('refresh').addEventListener('click', () => refresh(true));
@@ -787,15 +889,7 @@ function main() {
     try { await api('logout', {}); if (epoch !== state.epoch) return; signedOut(); toast('Signed out', 'out'); } catch (e) { if (epoch === state.epoch) notice(e.message); }
   });
   document.addEventListener('keydown', e => {
-    if ($('workspace').classList.contains('rail-open')) {
-      if (e.key === 'Escape') { e.preventDefault(); closeRail(); return; }
-      if (e.key === 'Tab') {
-        const focusable = [...$('rail').querySelectorAll('button:not(:disabled), a[href], [tabindex="0"]')].filter(el => el.getClientRects().length);
-        const first = focusable[0], last = focusable[focusable.length - 1];
-        if (first && e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (last && !e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    }
+    if (e.key === 'Escape' && isMobile() && state.view === 'chat' && !$('review').open && !$('workspace').hidden) { e.preventDefault(); goHome(); return; }
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
     if (e.key === '/' && !typing && !$('workspace').hidden && !$('review').open) { e.preventDefault(); ta.focus(); }
   });
