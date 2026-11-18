@@ -106,6 +106,15 @@ draft is kept in `sessionStorage` and cleared on sign-out. The page loads no
 third-party assets; the only static files served are `index.html`, `app.js`,
 `style.css` and `icon.svg`.
 
+On phone-width screens (820 px and narrower, including the iPhone Duo cover
+display) the same regions become an iOS-style navigation stack: a Home screen
+with Agents, Approvals and Settings tabs, and a conversation pushed on top.
+Each push adds a same-URL history entry, so Safari's edge swipe and the
+browser Back button return to Home; an app added to the Home Screen gets an
+equivalent edge swipe. The Approvals tab lists held requests from every agent
+plus everything in progress. Wider screens (including the unfolded Duo) keep
+the side-by-side layout, and the open conversation carries across a resize.
+
 ## Security and delivery behavior
 
 - Passphrases are checked with bcrypt; login is globally limited to five
