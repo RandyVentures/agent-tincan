@@ -34,6 +34,10 @@
     <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
     <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3c.6 4.6 2.4 6.4 7 7-4.6.6-6.4 2.4-7 7-.6-4.6-2.4-6.4-7-7 4.6-.6 6.4-2.4 7-7Z" fill="currentColor"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 11.5C4 7.4 7.6 4.5 12 4.5s8 2.9 8 7-3.6 7-8 7c-1 0-2-.1-2.9-.4L5 19.5l1.2-3.4C4.8 14.9 4 13.3 4 11.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.6-2-3.4-2.4.9a7.6 7.6 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.4A7.6 7.6 0 0 0 7 6.4l-2.4-.9-2 3.4 2 1.6a7.6 7.6 0 0 0 0 3l-2 1.6 2 3.4 2.4-.9a7.6 7.6 0 0 0 2.6 1.5l.4 2.4h4l.4-2.4a7.6 7.6 0 0 0 2.6-1.5l2.4.9 2-3.4Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 4.5 7.5 12l7.5 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </svg>
 
   <p id="live" class="sr-only" aria-live="polite"></p>
@@ -69,37 +73,68 @@
   </main>
 
   <!-- ───────────── Workspace ───────────── -->
-  <div id="workspace" class="app" hidden>
-    <div id="scrim" class="scrim" hidden></div>
-    <aside id="rail" class="rail" aria-label="Conversations and approvals">
-      <div class="rail-head">
-        <a class="brand" href="./" aria-label="Tincan home"><svg class="brand-mark"><use href="#i-logo"/></svg><span>Tincan</span></a>
-        <button id="close-rail" class="icon-btn only-mobile" type="button" aria-label="Close menu"><svg><use href="#i-x"/></svg></button>
-      </div>
-
-      <section class="rail-section">
-        <h2 class="rail-label">Conversations</h2>
-        <ul id="conversations" class="convo-list"></ul>
-      </section>
-
-      <section id="approvals-section" class="rail-section" hidden>
-        <h2 class="rail-label">Needs your approval <span id="approvals-count" class="count"></span></h2>
-        <ul id="approvals" class="approval-list"></ul>
-      </section>
-
-      <div class="rail-foot">
-        <span class="mode-badge" data-mode-badge hidden></span>
-        <div class="theme-switch" role="radiogroup" aria-label="Appearance" data-theme-switch></div>
-        <div class="rail-actions">
-          <span id="connection" class="conn" role="status"><i></i><span>Connecting…</span></span>
-          <button id="sign-out" class="btn btn-ghost btn-sm" type="button"><svg><use href="#i-out"/></svg>Sign out</button>
+  <div id="workspace" class="app view-home tab-agents" hidden>
+    <aside id="rail" class="rail" aria-label="Agents, approvals and settings">
+      <div id="rail-scroll" class="rail-scroll">
+        <header class="rail-head">
+          <a class="brand" href="./" aria-label="Tincan home"><svg class="brand-mark"><use href="#i-logo"/></svg><span>Tincan</span></a>
+          <span id="home-mini" class="home-mini" aria-hidden="true">Agents</span>
+        </header>
+        <div class="large-row m-only">
+          <h1 id="home-title" class="large-title">Agents</h1>
+          <svg class="large-mark" aria-hidden="true"><use href="#i-logo"/></svg>
         </div>
+        <div class="pull m-only" aria-hidden="true"><svg><use href="#i-refresh"/></svg><span class="pull-a">Pull to refresh</span><span class="pull-b">Release to refresh</span><span class="pull-c">Refreshing…</span></div>
+
+        <section id="pane-agents" class="pane" data-pane="agents" aria-labelledby="agents-label">
+          <div id="summary" class="summary" role="group" aria-label="Overview"></div>
+          <h2 id="agents-label" class="rail-label">Conversations</h2>
+          <ul id="conversations" class="convo-list"></ul>
+        </section>
+
+        <section id="pane-approvals" class="pane" data-pane="approvals" aria-label="Approvals and activity">
+          <div id="approvals-section" hidden>
+            <h2 class="rail-label">Needs your approval <span id="approvals-count" class="count"></span></h2>
+            <ul id="approvals" class="approval-list"></ul>
+          </div>
+          <div id="activity-section" hidden>
+            <h2 class="rail-label">In progress</h2>
+            <ul id="activity" class="activity-list"></ul>
+          </div>
+          <div id="inbox-empty" class="inbox-empty m-only">
+            <span class="inbox-mark"><svg><use href="#i-check"/></svg></span>
+            <h2>You’re all caught up</h2>
+            <p>Requests that need your approval, and anything your agents are working on, show up here.</p>
+          </div>
+        </section>
+
+        <section id="pane-settings" class="pane settings" data-pane="settings" aria-label="Settings">
+          <div class="set-group">
+            <h2 class="set-label">Appearance</h2>
+            <div class="set-card"><div class="theme-switch" role="radiogroup" aria-label="Appearance" data-theme-switch></div></div>
+          </div>
+          <div class="set-group">
+            <h2 class="set-label">Session</h2>
+            <div class="set-card set-rows">
+              <div class="set-row"><span id="connection" class="conn" role="status"><i></i><span>Connecting…</span></span><button id="refresh-row" class="link-btn m-only" type="button">Refresh</button></div>
+              <button id="sign-out" class="set-row set-danger" type="button"><svg><use href="#i-out"/></svg><span>Sign out</span></button>
+            </div>
+          </div>
+          <span class="mode-badge" data-mode-badge hidden></span>
+          <p class="set-note m-only">Requests to your agents may wait for your approval before delivery. Sessions end after 12 hours or when the service restarts.</p>
+        </section>
       </div>
+
+      <nav class="tabbar" aria-label="Sections">
+        <button class="tab" type="button" data-tab="agents" aria-current="page"><svg><use href="#i-chat"/></svg><span>Agents</span></button>
+        <button class="tab" type="button" data-tab="approvals" aria-current="false"><svg><use href="#i-shield"/></svg><span>Approvals</span><i id="tab-badge" class="tab-badge" hidden></i></button>
+        <button class="tab" type="button" data-tab="settings" aria-current="false"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
+      </nav>
     </aside>
 
-    <main class="chat" aria-label="Conversation">
+    <main id="chat" class="chat" aria-label="Conversation">
       <header class="chat-head">
-        <button id="open-rail" class="icon-btn only-mobile" type="button" aria-label="Open menu" aria-controls="rail" aria-expanded="false"><svg><use href="#i-menu"/></svg><span id="menu-dot" class="menu-dot" hidden></span></button>
+        <button id="back" class="back" type="button" aria-label="Back to agents"><svg><use href="#i-back"/></svg><span class="back-label">Agents</span><i id="menu-dot" class="back-badge" hidden></i></button>
         <div class="who">
           <span id="head-avatar" class="avatar" aria-hidden="true"></span>
           <div class="who-text">
@@ -108,7 +143,7 @@
           </div>
         </div>
         <div class="head-actions">
-          <button id="theme-cycle" class="icon-btn" type="button" aria-label="Change appearance"><svg><use href="#i-auto"/></svg></button>
+          <button id="theme-cycle" class="icon-btn only-desktop" type="button" aria-label="Change appearance"><svg><use href="#i-auto"/></svg></button>
           <button id="refresh" class="icon-btn" type="button" aria-label="Refresh"><svg><use href="#i-refresh"/></svg></button>
         </div>
         <div id="loadbar" class="loadbar" aria-hidden="true"></div>
