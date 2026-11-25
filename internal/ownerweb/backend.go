@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"slices"
 
 	"github.com/mvanhorn/agent-tincan/internal/client"
 	"github.com/mvanhorn/agent-tincan/internal/envelope"
@@ -37,12 +38,7 @@ type RelayBackend struct {
 }
 
 func (b *RelayBackend) allowed(target string) bool {
-	for _, name := range b.Targets {
-		if name == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(b.Targets, target)
 }
 
 func (b *RelayBackend) Agents(ctx context.Context) ([]Target, error) {
