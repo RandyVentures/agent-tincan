@@ -33,7 +33,7 @@ function main() {
   const groupLabel = 'Muse + Dot';
   const audienceLabel = { both: 'Muse and Dot', muse: 'Muse', 'dot-web': 'Dot' };
   const recipients = a => a === 'both' ? ['muse', 'dot-web'] : [a];
-  const conversation = it => it.request.group?.startsWith('owner-group-') ? GROUP : it.request.to;
+  const conversation = it => it.request.group && state.posts.some(p => p.id === it.request.group) ? GROUP : it.request.to;
   const chatLabel = name => name === GROUP ? groupLabel : cap(name);
   const STATUS = {
     held: { label: 'Needs approval', tone: 'amber' },
@@ -957,7 +957,8 @@ function main() {
     if (state.target !== name) { selectTarget(name); render(); }
     const pushed = state.view === 'chat';
     setView('chat');
-    if (isMobile() && !pushed && hasHistory) history.pushState({ tincan: 'chat' }, '');
+    // A reload can leave the chat history entry active while the rail is visible.
+    if (isMobile() && !pushed && hasHistory && history.state?.tincan !== 'chat') history.pushState({ tincan: 'chat' }, '');
     if (item) focusTurn(item);
     else if (isMobile()) scrollBottom(true);
     else ta.focus({ preventScroll: true });

@@ -68,8 +68,8 @@ UNION ALL SELECT * FROM (
 
 // OwnerDirectIDs excludes shared posts before limiting the direct inbox.
 func (s *Store) OwnerDirectIDs(ctx context.Context, owner string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM requests WHERE from_agent=? AND (hop=1 OR parent_id='') AND kind!='ping'
-	AND group_id NOT GLOB 'owner-group-*' ORDER BY created_at DESC,id DESC LIMIT 20`, owner)
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM requests r WHERE from_agent=? AND (hop=1 OR parent_id='') AND kind!='ping'
+	AND (group_id='' OR NOT EXISTS (SELECT 1 FROM owner_web_group_posts p WHERE p.owner=r.from_agent AND p.post_id=r.group_id)) ORDER BY created_at DESC,id DESC LIMIT 20`, owner)
 	if err != nil {
 		return nil, err
 	}
