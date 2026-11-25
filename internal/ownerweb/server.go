@@ -77,7 +77,10 @@ func token() string {
 func output(w http.ResponseWriter, code int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(value)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		// Headers are committed; abort a partial response.
+		panic(http.ErrAbortHandler)
+	}
 }
 func problem(w http.ResponseWriter, code int, message string) {
 	output(w, code, map[string]string{"error": message})
@@ -114,7 +117,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.prefix != "/" && r.URL.Path == strings.TrimSuffix(s.prefix, "/") && r.Method == "GET" {
-		http.Redirect(w, r, s.prefix, 302)
+		http.Redirect(w, r, s.prefix, http.StatusFound)
 		return
 	}
 	if !strings.HasPrefix(r.URL.Path, s.prefix) {
@@ -166,7 +169,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ctype = "image/svg+xml"
 		}
 		h.Set("Content-Type", ctype)
-		w.Write(body)
+		if _, err := w.Write(body); err != nil {
+			panic(http.ErrAbortHandler)
+		}
 		return
 	}
 	key, sess := s.authenticate(r)

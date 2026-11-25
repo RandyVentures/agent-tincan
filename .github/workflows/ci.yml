@@ -7,6 +7,19 @@ on:
     branches: [main]
 
 jobs:
+  javascript:
+    name: Extension and owner web tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test the extension
+        run: make extension-test
+      - name: Test the owner web UI
+        run: node --test internal/ownerweb/ui_test.cjs
+
   test:
     name: vet + test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -24,7 +37,7 @@ jobs:
       # -race needs cgo, so tests run with cgo on. Release binaries are
       # checked separately below with CGO_ENABLED=0.
       - name: go test
-        run: go test -race ./...
+        run: go test -race -timeout 40m ./...
 
   # The Windows client has no real-machine test, so this job is its acceptance
   # check. It covers the client packages, without -race, and the smoke test

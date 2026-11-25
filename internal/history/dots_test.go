@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mvanhorn/agent-tincan/internal/envelope"
+	"github.com/mvanhorn/agent-tincan/internal/relay"
 )
 
 const (
@@ -230,12 +231,13 @@ func TestDotPrimaryReadsTheThreadAndName(t *testing.T) {
 // returned message_id can find it) and schedules the dot's messages, each
 // shown from the read after the send numbered in its at.
 type dotsBrowser struct {
-	mu      sync.Mutex
-	items   []map[string]any
-	sends   []OpArgs
-	closes  []string
-	details int
-	seq     int
+	storeVerbatim bool // recovery must match a send whose returned message ID was lost
+	mu            sync.Mutex
+	items         []map[string]any
+	sends         []OpArgs
+	closes        []string
+	details       int
+	seq           int
 	// replies are the dot's answer to the next send.
 	replies []dotReply
 	pending []pendingDot
@@ -302,7 +304,11 @@ func (b *dotsBrowser) Exchange(_ context.Context, req NativeRequest, recv func(N
 		now := time.Now()
 		b.seq++
 		id := fmt.Sprintf("msg-%d", b.seq)
-		b.items = append(b.items, dotItem(id, dotOwner, "(as stored) "+req.Args.Message, now))
+		text := req.Args.Message
+		if !b.storeVerbatim {
+			text = "(as stored) " + text
+		}
+		b.items = append(b.items, dotItem(id, dotOwner, text, now))
 		for i, r := range b.replies {
 			from := dotBot
 			if r.owner {
@@ -346,7 +352,10 @@ func (b *dotsBrowser) Exchange(_ context.Context, req NativeRequest, recv func(N
 
 func dotsRig(t *testing.T) (*webRig, *dotsBrowser) {
 	t.Helper()
-	rig := newWebRig(t)
+	return withDotsBrowser(newWebRig(t))
+}
+
+func withDotsBrowser(rig *webRig) (*webRig, *dotsBrowser) {
 	b := &dotsBrowser{}
 	rig.agent.Site = SourceDots
 	rig.agent.Name = "dot-web"
@@ -354,6 +363,21 @@ func dotsRig(t *testing.T) (*webRig, *dotsBrowser) {
 	rig.agent.Native = &Client{Channel: b, Cooldown: &SiteCooldown{}}
 	rig.agent.ClaudeStableFor = time.Nanosecond
 	return rig, b
+}
+
+func TestDotWebRedeliveryRecoversReplyWithoutSendingTwice(t *testing.T) {
+	rig, browser := withDotsBrowser(newWebRigWith(t, relay.Config{ClaimLease: time.Millisecond}, true))
+	browser.storeVerbatim = true
+	browser.replies = []dotReply{{text: "Recovered Dot reply", at: 1}}
+	rig.agent.RequestTimeout = 3 * time.Second
+	asker, id := dieAfterSend(t, rig, "codex", "One Dot request")
+	res := rig.serve(t, asker, id)
+	if got := len(browser.sent()); got != 1 {
+		t.Fatalf("Dot received %d sends, want 1", got)
+	}
+	if res.Status != envelope.StatusAnswered || res.Reply.Body != "Recovered Dot reply\n\nyour dot's DM: "+dotThread {
+		t.Fatalf("recovered reply: %s %q", res.Status, res.Reply.Body)
+	}
 }
 
 // A request goes into the dot's thread (a leading "new chat" line

@@ -39,7 +39,15 @@ function fakeChrome() {
   return { listeners, state };
 }
 
-const settle = () => new Promise((r) => setTimeout(r, 20));
+// Wait for observable native-port events; startup hashes files asynchronously.
+async function waitFor(check) {
+  const deadline = Date.now() + 5000;
+  while (!check()) {
+    assert.ok(Date.now() < deadline, 'timed out waiting for the native port');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 
 test('background connects to the native host and answers only valid requests', async () => {
   const { listeners, state } = fakeChrome();
@@ -55,7 +63,7 @@ test('background connects to the native host and answers only valid requests', a
   assert.ok(state.alarms.some((a) => a.name === 'tincan-reconnect'));
 
   // On connect it says hello: version, unpacked, and a hash per file.
-  await settle();
+  await waitFor(() => state.posted.some((m) => m.hello));
   const hello = state.posted.find((m) => m.hello);
   assert.equal(hello.id, 0);
   assert.equal(hello.hello.version, '9.9.9');
@@ -68,7 +76,7 @@ test('background connects to the native host and answers only valid requests', a
   // chatgpt.com's access is withheld: its ops fail before any fetch.
   const sendOp = (m) => listeners.message.forEach((fn) => fn(m));
   sendOp({ id: 7, op: 'chatgpt.list', args: { count: 3 } });
-  await settle();
+  await waitFor(() => state.posted.some((m) => m.id === 7));
   assert.equal(state.posted.at(-1).error.code, 'permission_missing');
   assert.equal(calls.length, 0);
 
@@ -77,32 +85,32 @@ test('background connects to the native host and answers only valid requests', a
   state.granted.add('https://chatgpt.com/*');
   state.granted.add('https://*.oaiusercontent.com/*');
   listeners.permAdded.forEach((fn) => fn({ origins: ['https://chatgpt.com/*'] }));
-  await settle();
+  await waitFor(() => state.posted.filter((m) => m.hello).length >= 2);
   assert.equal(state.connects.length, 1, 'no reconnect');
   assert.deepEqual(state.posted.filter((m) => m.hello).map((m) => m.hello.granted), [['claudeai'], ['chatgpt', 'claudeai']]);
   state.granted.delete('https://claude.ai/*');
   listeners.permRemoved.forEach((fn) => fn({ origins: ['https://claude.ai/*'] }));
-  await settle();
+  await waitFor(() => state.posted.filter((m) => m.hello).length >= 3);
   assert.deepEqual(state.posted.filter((m) => m.hello).at(-1).hello.granted, ['chatgpt']);
   state.granted.add('https://claude.ai/*');
 
   const send = (m) => listeners.message.forEach((fn) => fn(m));
   send({ id: 1, op: 'chatgpt.list', args: { count: 3 } });
-  await settle();
+  await waitFor(() => state.posted.some((m) => m.id === 1));
   assert.deepEqual(state.posted.at(-1), { id: 1, ok: true, result: { items: [] } });
 
   // The fixed reload op answers, then calls chrome.runtime.reload.
   send({ id: 9, op: 'extension.reload', args: {} });
-  await settle();
+  await waitFor(() => state.posted.some((m) => m.id === 9));
   assert.deepEqual(state.posted.at(-1), { id: 9, ok: true, result: { reloading: true } });
-  await new Promise((r) => setTimeout(r, 300));
+  await waitFor(() => state.reloads === 1);
   assert.equal(state.reloads, 1);
 
   const before = calls.length;
   send({ id: 2, op: 'chatgpt.eval', args: { code: 'fetch("https://evil")' } });
   send({ id: 3, op: 'chatgpt.detail', args: { id: '../me' } });
   send({ op: 'chatgpt.list', args: { count: 1 } });
-  await settle();
+  await waitFor(() => state.posted.filter((m) => m.error?.code === 'bad_request').length >= 3);
   assert.equal(calls.length, before, 'invalid requests made no fetch');
   const errs = state.posted.slice(-3);
   assert.deepEqual(errs.map((e) => [e.id, e.ok, e.error.code]), [[2, false, 'bad_request'], [3, false, 'bad_request'], [0, false, 'bad_request']]);
@@ -119,7 +127,7 @@ test('background connects to the native host and answers only valid requests', a
   listeners.disconnect.forEach((fn) => fn());
   listeners.alarm.forEach((fn) => fn({ name: 'tincan-reconnect' }));
   assert.equal(state.connects.length, 2);
-  await settle();
+  await waitFor(() => state.posted.filter((m) => m.hello).length >= 4);
   const hellos = state.posted.filter((m) => m.hello);
   assert.equal(hellos.length, 4);
   assert.deepEqual(hellos[3].hello.files, hello.hello.files, 'hello reports the loaded files, not the ones on disk now');
@@ -134,28 +142,34 @@ test('background connects to the native host and answers only valid requests', a
 // arriving last would leave it reporting a revoked site as granted.
 test('an older hello that finishes last is dropped', async () => {
   const { listeners, state } = fakeChrome();
-  // contains answers from the grants as they are when it is called, after
-  // state.delay ms (a slow permissions query).
-  state.delay = 0;
-  globalThis.chrome.permissions.contains = ({ origins }) => {
+  const started = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let pauseNextQuery = false;
+  globalThis.chrome.permissions.contains = async ({ origins }) => {
     const answer = origins.every((o) => state.granted.has(o));
-    return new Promise((r) => setTimeout(() => r(answer), state.delay));
+    if (pauseNextQuery) {
+      pauseNextQuery = false;
+      started.resolve();
+      await release.promise;
+    }
+    return answer;
   };
   globalThis.fetch = async (url) => new Response('file ' + url);
   await import('../background.js?stale-hello');
-  await settle();
+  await waitFor(() => state.posted.some((m) => m.hello));
   assert.deepEqual(state.posted.filter((m) => m.hello).map((m) => m.hello.granted), [['claudeai']]);
 
   // ChatGPT is granted; that hello's permissions query is slow.
   state.granted.add('https://chatgpt.com/*');
-  state.delay = 60;
+  pauseNextQuery = true;
   listeners.permAdded.forEach((fn) => fn({ origins: ['https://chatgpt.com/*'] }));
-  await new Promise((r) => setTimeout(r, 10));
+  await started.promise;
   // Then it is revoked, and this hello's query is fast.
   state.granted.delete('https://chatgpt.com/*');
-  state.delay = 0;
   listeners.permRemoved.forEach((fn) => fn({ origins: ['https://chatgpt.com/*'] }));
-  await new Promise((r) => setTimeout(r, 200));
+  await waitFor(() => state.posted.filter((m) => m.hello).length === 2);
+  release.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
 
   const hellos = state.posted.filter((m) => m.hello).map((m) => m.hello.granted);
   assert.deepEqual(hellos.at(-1), ['claudeai'], `last hello the host saw: ${JSON.stringify(hellos)}`);

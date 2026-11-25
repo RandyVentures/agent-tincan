@@ -86,7 +86,7 @@ func TestLedgerSuccessfulResultSurvivesRestart(t *testing.T) {
 	if err != nil || !fresh {
 		t.Fatal(err)
 	}
-	result := envelope.SendResponse{Request: envelope.Request{ID: "original-id", To: "muse", Body: "request", Status: envelope.StatusHeld}}
+	result := envelope.SendResponse{ID: "original-id", To: "muse", Body: "request", Status: envelope.StatusHeld}
 	if err := l.finish(t.Context(), "key", result, nil); err != nil {
 		t.Fatal(err)
 	}
