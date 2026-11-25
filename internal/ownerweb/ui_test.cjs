@@ -162,3 +162,57 @@ test('an observed delivery issue gives a next step and a missing history stays u
   h.ui.render();
   assert.equal(h.el('delivery-summary').textContent, 'History unavailable');
 });
+
+test('group address and displayed recipients agree; direct drafts are never forwarded', async () => {
+  const writes = [];
+  const h = harness(async (url, opts) => {
+    if (opts.method === 'POST') {
+      writes.push({path:url.pathname, ...JSON.parse(opts.body)});
+      return response({id:'post'});
+    }
+    return response({targets:h.ui.state.targets, requests:[], group_posts:[]});
+  });
+  h.ui.state.groupEnabled = true;
+  h.ui.state.targets.push({name:'dot-web', online:true});
+  const ta = h.el('request-body');
+  ta.value = 'private draft';
+  await ta.fire('input');
+  h.ui.render();
+  await openConversation(h, 'group/muse-dot');
+  assert.equal(ta.value, '');
+  for (const [text, audience, body] of [
+    ['First post', 'both', 'First post'],
+    ['@Dot second post', 'dot-web', 'second post'],
+    ['@Muse: third post', 'muse', 'third post'],
+  ]) {
+    ta.value = text;
+    await ta.fire('input');
+    assert.equal(h.el('group-audience').value, audience);
+    await h.el('compose').fire('submit');
+    assert.equal(writes.at(-1).audience, audience);
+    assert.equal(writes.at(-1).body, body);
+    assert.equal(writes.at(-1).path, '/api/group');
+  }
+  ta.value = '@Other ambiguous'; await h.el('compose').fire('submit');
+  assert.equal(writes.length, 3);
+  await openConversation(h, 'muse');
+  assert.equal(ta.value, 'private draft');
+  h.ui.signedOut();
+  assert.equal(h.ui.state.posts.length, 0);
+  assert.equal(h.el('group-route').hidden, true);
+});
+
+test('one group post shows both outcomes, appears once and stays outside the direct chat', async () => {
+  const h = harness();
+  h.ui.state.groupEnabled = true;
+  h.ui.state.targets.push({name:'dot-web',online:true});
+  const member = item('shared post','answered',{from:'muse',body:'group reply',status:'answered',created_at:new Date().toISOString()});
+  member.request.group = 'owner-group-sample';
+  h.ui.state.items = [member];
+  h.ui.state.posts = [{id:member.request.group,audience:'both',body:'shared post',created_at:member.request.created_at,requests:[member]}];
+  h.ui.render(); assert(!h.el('feed').textContent.includes('shared post'));
+  await openConversation(h, 'group/muse-dot');
+  assert.equal(h.el('feed').textContent.split('shared post').length, 2);
+  assert.match(h.el('feed').textContent,/group reply/);
+  assert.match(h.el('feed').textContent,/Dot · Delivery unconfirmed/);
+});

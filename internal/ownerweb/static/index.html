@@ -178,6 +178,9 @@
           <div class="context-text"><strong>Following up</strong><span id="context-quote"></span></div>
           <button id="clear-context" class="icon-btn icon-btn-sm" type="button" aria-label="Remove follow-up context"><svg><use href="#i-x"/></svg></button>
         </div>
+        <label id="group-route" for="group-audience" hidden>Send to
+          <select id="group-audience"><option value="both">Both agents</option><option value="muse">Muse only</option><option value="dot-web">Dot only</option></select>
+        </label>
         <div class="compose-box">
           <label class="sr-only" for="request-body">Message</label>
           <textarea id="request-body" rows="1" maxlength="16384" placeholder="Message…" enterkeyhint="enter"></textarea>
