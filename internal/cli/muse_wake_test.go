@@ -5,13 +5,12 @@ import (
 	"errors"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mvanhorn/agent-tincan/internal/client"
 	"github.com/mvanhorn/agent-tincan/internal/envelope"
-	"github.com/mvanhorn/agent-tincan/internal/policy"
 	"github.com/mvanhorn/agent-tincan/internal/relay"
 	"github.com/mvanhorn/agent-tincan/internal/testrelay"
 )
@@ -82,18 +81,14 @@ func TestMuseWaitFreshShellRecoversAfter407(t *testing.T) {
 // lose it. Approval after timeout queues the original ask for a new wait.
 func TestMuseWaitCanRestartAfterApprovalOutlastsTimeout(t *testing.T) {
 	m := testrelay.New(t, relay.Config{})
-	path := filepath.Join(t.TempDir(), "approval.json")
-	if err := os.WriteFile(path, []byte(`{"gate":{"muse":{"from":"*"}}}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	approval, err := policy.LoadApproval(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m.Server.SetPreparer(policy.New(m.Store, policy.Config{Approval: approval}))
 	useConfig(t, client.Config{Relay: m.URL("muse"), Agent: "muse"})
 	sender := m.Client(t, "instinct")
-	req, err := sender.Send(t.Context(), "muse", "held transport check", envelope.KindAsk, "", false)
+	// Start with a held request so the client timeout and approval recovery
+	// are also exercised on Windows, where a POSIX relay policy file cannot be hosted.
+	req, err := m.Store.Enqueue(t.Context(), envelope.Request{
+		From: "instinct", To: "muse", Kind: envelope.KindAsk, Body: "held transport check",
+		Status: envelope.StatusHeld, HoldTTL: time.Hour,
+	}, time.Hour)
 	if err != nil || req.Status != envelope.StatusHeld {
 		t.Fatalf("send: %+v, %v", req, err)
 	}
