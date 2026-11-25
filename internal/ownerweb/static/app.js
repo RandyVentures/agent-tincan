@@ -25,16 +25,23 @@ function main() {
     epoch: 0, controllers: new Set(), reviewPending: false, csrf: '', items: [], targets: [], target: null, busy: false, polling: false, connected: true,
     submission: null, review: null, interval: null, followUp: null, loaded: false,
     nodes: new Map(), days: new Map(), expanded: new Set(), lastStatus: new Map(), fixture: false,
-    view: 'home', tab: 'agents', groupEnabled: false, posts: [], audience: 'both',
+    view: 'home', tab: 'agents', groupEnabled: false, posts: [], shared: [], audience: 'both',
   };
 
   // The slash cannot collide with a valid relay agent name.
   const GROUP = 'group/muse-dot';
+  const SHARED = 'shared/muse-dot';
   const groupLabel = 'Muse + Dot';
+  const isGroup = name => name === GROUP || name === SHARED;
   const audienceLabel = { both: 'Muse and Dot', muse: 'Muse', 'dot-web': 'Dot' };
   const recipients = a => a === 'both' ? ['muse', 'dot-web'] : [a];
-  const conversation = it => it.request.group && state.posts.some(p => p.id === it.request.group) ? GROUP : it.request.to;
-  const chatLabel = name => name === GROUP ? groupLabel : cap(name);
+  function conversation(it) {
+    const id = it.request.group;
+    if (id && state.shared.some(p => p.id === id)) return SHARED;
+    if (id && state.posts.some(p => p.id === id)) return GROUP;
+    return it.request.to;
+  }
+  const chatLabel = name => name === SHARED ? groupLabel : name === GROUP ? 'Earlier group chat' : cap(name);
   const STATUS = {
     held: { label: 'Needs approval', tone: 'amber' },
     queued: { label: 'Queued', tone: 'blue' },
@@ -259,7 +266,7 @@ function main() {
     state.controllers.clear();
     state.railSig = ''; state.busy = false; state.polling = false; state.connected = false; state.target = null; state.reviewPending = false;
     state.csrf = ''; state.items = []; state.targets = []; state.submission = null; state.review = null; state.followUp = null; state.loaded = false;
-    state.groupEnabled = false; state.posts = []; state.audience = 'both';
+    state.groupEnabled = false; state.posts = []; state.shared = []; state.audience = 'both';
     $('group-route').hidden = true; $('group-audience').value = 'both';
     try { sessionStorage.removeItem('tincan-group-audience'); } catch { /* private storage */ }
     state.nodes.clear(); state.days.clear(); state.expanded.clear(); state.lastStatus.clear();
@@ -310,7 +317,12 @@ function main() {
       if (epoch !== state.epoch) return;
       state.targets = agents.targets || [];
       state.posts = requests.group_posts || [];
-      state.items = (requests.requests || []).concat(state.posts.flatMap(p => p.requests || [])).sort((a, b) => new Date(a.request.created_at) - new Date(b.request.created_at));
+      state.shared = requests.shared_posts || [];
+      // Lists show the owner's original post. Review fetches the exact outgoing text separately.
+      for (const post of state.shared) {
+        for (const item of post.requests || []) item.request.body = post.body;
+      }
+      state.items = (requests.requests || []).concat([...state.posts, ...state.shared].flatMap(p => p.requests || [])).sort((a, b) => new Date(a.request.created_at) - new Date(b.request.created_at));
       state.connected = true; setConn(true); notice('');
       render();
     } catch (e) {
@@ -361,7 +373,7 @@ function main() {
 
   function render() {
     const names = targetNames();
-    if (!(state.target === GROUP && state.groupEnabled) && !names.includes(state.target)) selectTarget(names[0] || null);
+    if (!(isGroup(state.target) && state.groupEnabled) && !names.includes(state.target)) selectTarget(names[0] || null);
     renderRail(names);
     renderHead();
     renderFeed();
@@ -378,7 +390,7 @@ function main() {
   const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
   function renderRail(names) {
-    const sig = JSON.stringify([names, state.target, state.targets, state.items, state.groupEnabled, state.posts]);
+    const sig = JSON.stringify([names, state.target, state.targets, state.items, state.groupEnabled, state.posts, state.shared]);
     if (state.railSig === sig) return;
     state.railSig = sig;
     const focused = document.activeElement;
@@ -397,11 +409,15 @@ function main() {
 
     const list = $('conversations'); list.replaceChildren();
     if (state.groupEnabled) {
-      const last = state.posts.at(-1);
-      list.append(h('li', {}, h('button', { type: 'button', class: 'convo', 'data-conversation': GROUP,
-        'aria-current': String(state.target === GROUP), onclick: () => openChat(GROUP) },
-        avatar(groupLabel), h('span', { class: 'convo-main' }, h('strong', { text: groupLabel }),
-          h('span', { class: 'convo-preview', text: last ? oneLine(last.body).slice(0, 140) : 'Group chat' })), chevron())));
+      const threads = [SHARED];
+      if (state.posts.length || drafts.has(GROUP) || state.target === GROUP) threads.push(GROUP);
+      for (const thread of threads) {
+        const last = (thread === SHARED ? state.shared : state.posts).at(-1);
+        list.append(h('li', {}, h('button', { type: 'button', class: 'convo', 'data-conversation': thread,
+          'aria-current': String(state.target === thread), onclick: () => openChat(thread) },
+          avatar(groupLabel), h('span', { class: 'convo-main' }, h('strong', { text: chatLabel(thread) }),
+            h('span', { class: 'convo-preview', text: last ? oneLine(last.body).slice(0, 140) : 'Shared thread' })), chevron())));
+      }
     }
     for (const name of names) {
       const items = state.items.filter(i => conversation(i) === name);
@@ -520,7 +536,8 @@ function main() {
     $('head-avatar').replaceWith(Object.assign(avatar(name || '?', '', name ? key : ''), { id: 'head-avatar' }));
     $('head-name').textContent = name ? chatLabel(name) : 'No agents yet';
     const p = $('head-presence'); p.replaceChildren();
-    if (name === GROUP) p.textContent = 'Shared conversation · choose who receives each post';
+    if (name === SHARED) p.textContent = 'Both agents can see messages here.';
+    else if (name === GROUP) p.textContent = 'Shared conversation · choose who receives each post';
     else if (!name) p.textContent = 'Connect an agent to the relay to start a conversation.';
     else if (t && t.status === 'stuck' && t.status_reason) p.append(h('b', { text: 'Stuck' }), ' · ' + t.status_reason);
     else p.textContent = PRESENCE[key] || key;
@@ -536,8 +553,8 @@ function main() {
   function renderFeed() {
     const tl = $('timeline'), feed = $('feed');
     const nearBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 140;
-    const group = state.target === GROUP;
-    const items = group ? state.posts : state.items.filter(i => conversation(i) === state.target);
+    const group = isGroup(state.target);
+    const items = state.target === SHARED ? state.shared : group ? state.posts : state.items.filter(i => conversation(i) === state.target);
     const wanted = []; let lastDay = ''; let changed = false; let gotReply = false;
     if (items.length >= 20) wanted.push(state.days.get('cap') || (state.days.set('cap', h('li', { class: 'day' }, h('span', { text: 'Showing your 20 most recent requests' }))), state.days.get('cap')));
     for (const it of items) {
@@ -578,7 +595,8 @@ function main() {
     $('empty-text').textContent = name
       ? 'Everything you send lands here as one continuous thread — approvals, progress and replies in line, oldest at the top.'
       : 'Once an agent joins the relay, it shows up here and you can message it.';
-    if (name === GROUP) $('empty-text').textContent = 'Send a message to both agents or choose one. Their replies appear here. Previous messages are only shared when you quote them.';
+    if (name === SHARED) $('empty-text').textContent = 'Ask both agents, or start with @Muse or @Dot to choose who answers. They receive recent messages from this shared thread when you ask.';
+    else if (name === GROUP) $('empty-text').textContent = 'Send a message to both agents or choose one. Their replies appear here. Previous messages are only shared when you quote them.';
     const s = $('starters'); s.replaceChildren();
     if (!name) return;
     for (const [label, text] of STARTERS) s.append(h('button', { type: 'button', class: 'starter', onclick: () => { const ta = $('request-body'); ta.value = text; autosize(); ta.focus(); ta.setSelectionRange(text.length, text.length); saveDraft(); } }, icon('spark'), label));
@@ -623,7 +641,7 @@ function main() {
     const li = h('li', { class: 'turn', 'data-id': post.id });
     li.append(h('div', { class: 'msg msg-you' }, h('div', { class: 'msg-body' },
       h('div', { class: 'bubble bubble-you' }, rich(post.body)),
-      h('div', { class: 'meta', text: 'You → ' + audienceLabel[post.audience] + ' · ' + time(new Date(post.created_at)) }))));
+      h('div', { class: 'meta', text: (state.target === SHARED ? 'You · Asked ' : 'You → ') + audienceLabel[post.audience] + ' · ' + time(new Date(post.created_at)) }))));
     for (const name of recipients(post.audience)) {
       const it = (post.requests || []).find(r => r.request.to === name);
       if (it) li.append(buildTurn(it, true));
@@ -686,8 +704,12 @@ function main() {
         try { await navigator.clipboard.writeText(rep.body); copy.replaceChildren(icon('check'), 'Copied'); copy.classList.add('done'); setTimeout(() => { copy.replaceChildren(icon('copy'), 'Copy'); copy.classList.remove('done'); }, 1600); }
         catch { toast('Copy isn’t available here', 'x'); }
       } }, icon('copy'), 'Copy');
+      const other = req.to === 'muse' ? 'Dot' : 'Muse';
+      const action = state.target === SHARED && !failed
+        ? h('button', { type: 'button', class: 'tool', onclick: () => askAbout(it, other) }, icon('reply'), 'Ask ' + other + ' about this')
+        : h('button', { type: 'button', class: 'tool', onclick: () => followUp(it) }, icon('reply'), 'Follow up');
       li.append(agentMsg(rep.from || req.to, rep.created_at, clampable(bubble, id + ':a', rep.body),
-        [h('button', { type: 'button', class: 'tool', onclick: () => followUp(it) }, icon('reply'), 'Follow up'), copy], failed ? chip('failed') : null));
+        [action, copy], failed ? chip('failed') : null));
     } else if (!ACTIVE.has(it.status)) {
       const msg = { declined: 'You declined this request — it was never delivered.', expired: 'This request expired before ' + to + ' replied.', cancelled: 'This request was cancelled.', failed: to + ' couldn’t complete this request.' }[it.status];
       const fromRelay = relayReply(it);
@@ -734,8 +756,8 @@ function main() {
     updateSend();
   }
   function updateSend() {
-    const group = state.target === GROUP;
-    $('group-route').hidden = !group;
+    const group = isGroup(state.target);
+    $('group-route').hidden = state.target !== GROUP;
     const route = group ? groupRoute(ta.value) : null;
     $('group-audience').value = route?.audience || state.audience;
     $('group-audience').disabled = !!(group && ta.value.trimStart().startsWith('@'));
@@ -745,7 +767,8 @@ function main() {
     const t = targetInfo(state.target), hint = $('target-hint');
     const offline = !group && state.target && presenceKey(t) === 'offline';
     hint.classList.toggle('offline', !!offline);
-    hint.lastElementChild.textContent = group ? (route.error || 'Only this message and any quote you include go to ' + audienceLabel[route.audience] + '.')
+    hint.lastElementChild.textContent = state.target === SHARED ? (route.error || (route.audience === 'both' ? 'Both can answer. Use @Muse or @Dot to ask one.' : audienceLabel[route.audience] + ' answers. Both can see this thread.'))
+      : group ? (route.error || 'Only this message and any quote you include go to ' + audienceLabel[route.audience] + '.')
       : !state.target ? 'No agent available to message yet.'
       : !t ? cap(state.target) + ' isn’t connected to the relay right now.'
       : offline ? cap(state.target) + ' is offline. Your request can wait in the queue.'
@@ -754,7 +777,7 @@ function main() {
   }
   function groupRoute(value) {
     const text = value.trim();
-    if (!text.startsWith('@')) return { audience: state.audience, text };
+    if (!text.startsWith('@')) return { audience: state.target === SHARED ? 'both' : state.audience, text };
     const match = /^@(muse|dot(?:-web)?|both)(?=$|[\s:,])[:,]?\s*/i.exec(text);
     if (!match) return { error: 'Start with @Muse, @Dot or @Both to address this post.' };
     const body = text.slice(match[0].length);
@@ -804,6 +827,13 @@ function main() {
   // sheet and timeline preserve that exact text; prefixes are not hidden metadata.
   const plain = body => body;
   function excerpt(text, n) { const t = text.replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t; }
+  function askAbout(it, other) {
+    if (state.target !== SHARED || conversation(it) !== SHARED) return;
+    ta.value = '@' + other + ' ' + ta.value.replace(/^@(muse|dot(?:-web)?|both)\b[:,]?\s*/i, '');
+    followUp(it);
+    saveDraft();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+  }
   function followUp(it, question) {
     if (state.target === GROUP) setAudience(it.request.to);
     setContext({ id: it.request.id, target: conversation(it), author: it.request.to, request: excerpt(it.request.body, 220), reply: question ? excerpt(question, 280) : it.reply ? excerpt(it.reply.body, 280) : '', question: !!question });
@@ -825,7 +855,7 @@ function main() {
     if (!c || c.target !== state.target) return text;
     const quote = s => s.split('\n').map(l => '> ' + l).join('\n');
     let out = 'Follow-up to my earlier request:\n' + quote(c.request);
-    if (c.reply && state.target === GROUP) return out + '\n\n' + audienceLabel[c.author] + (c.question ? ' asked:' : ' replied:') + '\n' + quote(c.reply) + '\n\n' + text;
+    if (c.reply && isGroup(state.target)) return out + '\n\n' + audienceLabel[c.author] + (c.question ? ' asked:' : ' replied:') + '\n' + quote(c.reply) + '\n\n' + text;
     if (c.reply) out += '\n\n' + (c.question ? 'You asked:' : 'Your reply began:') + '\n' + quote(c.reply);
     return out + '\n\n' + text;
   }
@@ -837,7 +867,7 @@ function main() {
     const draft = ta.value, context = state.followUp;
     const text = draft.trim(), target = state.target;
     if (!text || !target) return;
-    const group = target === GROUP;
+    const group = isGroup(target);
     const route = group ? groupRoute(text) : null;
     if (group && (!state.groupEnabled || route.error || !route.text)) {
       error('request-error', route.error || 'Write a message after the recipient.'); return;
@@ -857,7 +887,7 @@ function main() {
     scrollBottom(false);
     try {
       const sent = group
-        ? await api('group', { audience, body, submission_key: submission.key })
+        ? await api(target === SHARED ? 'shared' : 'group', { audience, body, submission_key: submission.key })
         : await api('requests', { target, body, submission_key: submission.key });
       if (epoch !== state.epoch) return;
       state.submission = null;
