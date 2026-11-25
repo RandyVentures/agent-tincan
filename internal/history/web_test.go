@@ -1187,10 +1187,10 @@ func TestWebRequeuedRequestIsNotSentAgain(t *testing.T) {
 // and the request id.
 func dieAfterSend(t *testing.T, rig *webRig, from, body string) (*client.Relay, string) {
 	t.Helper()
-	fb := rig.browser
+	fb := rig.agent.Native.Channel
 	crash := true
 	rig.agent.Native = &Client{Channel: channelFunc(func(ctx context.Context, req NativeRequest, recv func(NativeResponse) (bool, error)) error {
-		if req.Op == OpChatGPTSend && crash {
+		if crash && (req.Op == OpChatGPTSend || req.Op == OpDotsSend) {
 			crash = false
 			if err := fb.Exchange(ctx, req, recv); err != nil {
 				return err
