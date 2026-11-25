@@ -273,6 +273,16 @@ func TestOwnerWebRealRelayRoundTripAndApprovalBoundary(t *testing.T) {
 	if result.Status != envelope.StatusAnswered || result.Reply == nil || result.Reply.Body != "OWNER_WEB_TEST_OK" {
 		t.Fatalf("result = %+v", result)
 	}
+	code, raw, _ = e.request(t, "GET", "/api/targets", nil)
+	var roster struct {
+		Targets []ownerweb.Target `json:"targets"`
+	}
+	if err := json.Unmarshal(raw, &roster); err != nil {
+		t.Fatal(err)
+	}
+	if code != 200 || len(roster.Targets) != 1 || roster.Targets[0].Delivery == nil || !roster.Targets[0].Delivery.LastReply.Equal(result.Reply.CreatedAt) || strings.Contains(string(raw), "OWNER_WEB_TEST_OK") {
+		t.Fatalf("unexpected owner delivery summary: %d %s", code, raw)
+	}
 	// A duplicate browser submit returns the original request, not a second ask.
 	code, raw, _ = e.request(t, "POST", "/api/requests", map[string]string{"submission_key": "owner-web-unique-submission-001", "target": "muse", "body": body})
 	if code != 200 || !strings.Contains(string(raw), sent.ID) {

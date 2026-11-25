@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS requests (
   reply_seen_at INTEGER NOT NULL DEFAULT 0,
   attachments TEXT NOT NULL DEFAULT ''
 );
+CREATE INDEX IF NOT EXISTS requests_owner_delivery ON requests(from_agent,to_agent,status,updated_at DESC,id DESC) WHERE kind='ask';
 CREATE INDEX IF NOT EXISTS requests_to_status ON requests(to_agent, status);
 -- QueueStats groups open requests across every agent; leading with status
 -- keeps it to the open rows instead of the whole request history.

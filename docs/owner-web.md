@@ -88,6 +88,15 @@ policy. Existing requests remain in the relay. To remove the owner identity
 too, explicitly run `tincan remove owner-web` on an admin device or local
 socket. Keep the submission ledger: dropping it can lose duplicate protection.
 
+## Delivery status
+
+Open **Delivery** beneath an agent’s name to see the last reply to one of your asks,
+the latest failed or expired ask, and a suggested next step. These timestamps
+use retained relay history even when the requests have scrolled out of the
+recent timeline. A later answer is shown as recovery. Relay presence, recorded
+delivery outcomes, and reported browser sign-in or usage limits are separate
+observations. Viewing status sends no messages.
+
 ## Workspace interface
 
 The browser UI (`internal/ownerweb/static/`) presents each configured target

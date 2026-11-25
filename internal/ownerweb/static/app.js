@@ -258,6 +258,7 @@ function main() {
     for (const id of ['review-body', 'review-route', 'review-error', 'live', 'head-name', 'head-presence', 'context-quote', 'approvals-count', 'count', 'login-error']) $(id).textContent = '';
     $('request-body').value = ''; clearDrafts(); setContext(null); error('request-error', ''); notice('');
     for (const id of ['summary', 'activity']) $(id).replaceChildren();
+    $('delivery').open = false; renderDelivery(null);
     $('workspace').hidden = true; $('login-view').hidden = false; resetNav();
     clearTimeout(toastTimer); $('toast').replaceChildren(); $('toast').hidden = true;
     $('password').value = ''; $('password').type = 'password';
@@ -297,7 +298,7 @@ function main() {
       state.connected = true; setConn(true); notice('');
       render();
     } catch (e) {
-      if (epoch === state.epoch && state.csrf) { state.connected = false; setConn(false); notice(e.message); updateSend(); }
+      if (epoch === state.epoch && state.csrf) { state.connected = false; setConn(false); notice(e.message); renderDelivery(targetInfo(state.target)); updateSend(); }
     } finally {
       clearTimeout(loadTimer);
       if (epoch === state.epoch) {
@@ -330,6 +331,7 @@ function main() {
   function selectTarget(name) {
     if (state.target === name) return;
     saveDraft();
+    $('delivery').open = false;
     state.target = name;
     ta.value = drafts.get(name) || '';
     setContext(null);
@@ -439,9 +441,58 @@ function main() {
     if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 
+  const problems = {
+    failed: ['Request failed', 'Open the failed request to see the agent’s explanation.'],
+    expired: ['Request expired', 'Check that the agent is listening before starting another request.'],
+    signed_out: ['Browser signed out', 'Sign in to the agent’s site in its connected browser.'],
+    extension: ['Extension disconnected', 'Open the agent’s browser and check that the Tincan extension is enabled and connected.'],
+    editor: ['Browser could not submit', 'Check the message box in the agent’s browser and reload its Tincan extension if the issue persists.'],
+  };
+
+  function renderDelivery(t) {
+    const panel = $('delivery');
+    panel.hidden = !t;
+    const d = t?.delivery;
+    const problem = problems[d?.problem] || problems.failed;
+    const stamp = value => new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    const recentIssue = d?.last_problem && (!d.last_reply || Date.parse(d.last_problem) >= Date.parse(d.last_reply));
+    let summary = 'No verified reply';
+    let action = 'The first reply to one of your requests will appear here.';
+    if (!state.connected) {
+      summary = 'Status unavailable';
+      action = 'Reconnect to refresh these observations.';
+    } else if (t?.browser_signed_out) {
+      summary = 'Browser sign-in needed';
+      action = problems.signed_out[1];
+    } else if (t?.limited_until && Date.parse(t.limited_until) > Date.now()) {
+      summary = 'Usage limited';
+      action = 'The agent reported a limit until ' + stamp(t.limited_until) + '.';
+    } else if (!d) {
+      summary = 'History unavailable';
+      action = 'Refresh to check delivery history.';
+    } else if (recentIssue) {
+      summary = problem[0];
+      action = problem[1];
+    } else if (d.last_reply) {
+      summary = 'Last reply ' + stamp(d.last_reply);
+      action = d.last_problem ? 'The agent answered after the last problem.' : 'The agent answered your request.';
+    }
+    const fields = {
+      'delivery-summary': summary,
+      'delivery-reply': d?.last_reply ? stamp(d.last_reply) : d ? 'No reply recorded' : 'Unavailable',
+      'delivery-problem': d?.last_problem ? problem[0] + ' · ' + stamp(d.last_problem) : d ? 'None recorded' : 'Unavailable',
+      'delivery-action': action,
+    };
+    for (const [id, value] of Object.entries(fields)) {
+      const text = t ? value : '';
+      if ($(id).textContent !== text) $(id).textContent = text;
+    }
+  }
+
   function renderHead() {
     const name = state.target;
     const t = targetInfo(name);
+    renderDelivery(t);
     const key = presenceKey(t);
     $('head-avatar').replaceWith(Object.assign(avatar(name || '?', '', name ? key : ''), { id: 'head-avatar' }));
     $('head-name').textContent = name ? cap(name) : 'No agents yet';

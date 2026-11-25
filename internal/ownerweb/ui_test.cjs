@@ -128,3 +128,37 @@ test('a pending send stays with its recipient when switching chats', async () =>
   await openConversation(h, 'muse');
   assert.equal(composer.value, '');
 });
+
+test('agent delivery shows recovery, separates targets, and clears private status on logout', async () => {
+  const h = harness();
+  h.ui.state.targets[0].delivery = {
+    last_reply: '2026-01-03T12:30:00Z',
+    last_problem: '2026-01-02T12:30:00Z', problem: 'editor',
+  };
+  h.ui.state.targets.push({name: 'dot-web', online: true, delivery: {}});
+  h.ui.render();
+  assert.match(h.el('delivery-problem').textContent, /Browser could not submit/);
+  assert.match(h.el('delivery-action').textContent, /answered after/);
+  h.el('delivery').open = true;
+  await openConversation(h, 'dot-web');
+  assert.equal(h.el('delivery').open, false);
+  assert.equal(h.el('delivery-summary').textContent, 'No verified reply');
+  assert.equal(h.el('delivery-problem').textContent, 'None recorded');
+  h.ui.state.targets[1].browser_signed_out = true;
+  h.ui.render();
+  assert.match(h.el('delivery-summary').textContent, /sign-in needed/);
+  h.ui.signedOut();
+  assert.equal(h.el('delivery').hidden, true);
+  assert.equal(h.el('delivery-summary').textContent, '');
+});
+
+test('an observed delivery issue gives a next step and a missing history stays unknown', () => {
+  const h = harness();
+  h.ui.state.targets[0].delivery = {last_problem:'2026-01-05T10:00:00Z', problem:'extension'};
+  h.ui.render();
+  assert.equal(h.el('delivery-summary').textContent, 'Extension disconnected');
+  assert.match(h.el('delivery-action').textContent, /extension is enabled/);
+  delete h.ui.state.targets[0].delivery;
+  h.ui.render();
+  assert.equal(h.el('delivery-summary').textContent, 'History unavailable');
+});
