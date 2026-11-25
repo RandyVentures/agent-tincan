@@ -126,9 +126,11 @@ the side-by-side layout, and the open conversation carries across a resize.
 
 ## Muse + Dot group chat
 
-When both `muse` and `dot-web` are configured, open **Muse + Dot** in the conversation list. The recipient selector starts on **Both agents**. Choose Muse or Dot for one recipient, or begin a post with `@Muse`, `@Dot`, or `@Both`. The composer shows the effective audience. Each selected agent receives the new text through its usual ask and approval path. Their replies appear under that post.
+Open **Muse + Dot** when both agents are configured. A plain message invites both agents to answer. Start with `@Muse` or `@Dot` to choose one responder. Under an agent’s reply, **Ask Dot about this** or **Ask Muse about this** prepares a mention and a short attributed quote; type your question and send.
 
-Private conversations stay in their own views. Sending a group post does not attach prior DMs or send either agent the other agent’s reply. To discuss an answer with the other agent, use **Follow up**, choose the other recipient and send your question with the quoted excerpt. Each provider still has its own account and conversation history.
+Both providers may receive messages and replies from this shared thread when you next address them. Each ask includes recent context from up to eight earlier posts, with shortened excerpts and an 8 KiB context budget. Your new message has priority within the 16 KiB request limit. The relay only includes earlier posts whose intended deliveries cleared approval; it includes successful agent replies. An agent answer never starts another turn. Reviews show the exact outgoing text, including context.
+
+**Earlier group chat** keeps its original per-message sharing behavior. Direct messages, drafts, and earlier group posts are outside the new thread. Each provider still has its own account history. Dot uses its existing provider DM.
 
 The workspace shows the latest 20 group posts. A post is saved before delivery, with a separate result for each recipient. If a result is unconfirmed, refresh to check it. Refreshing, reopening, or replaying a submission cannot resend it.
 

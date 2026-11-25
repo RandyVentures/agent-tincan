@@ -10,6 +10,9 @@ import (
 	"github.com/mvanhorn/agent-tincan/internal/client"
 )
 
+const legacyPostPrefix = "owner-group-"
+const sharedPostPrefix = "owner-shared-"
+
 const groupSchema = `CREATE TABLE IF NOT EXISTS owner_web_group_posts (
  owner TEXT NOT NULL, post_id TEXT NOT NULL, audience TEXT NOT NULL, body TEXT NOT NULL,
  created_at INTEGER NOT NULL, PRIMARY KEY(owner,post_id)
@@ -41,7 +44,7 @@ func groupTargets(audience string) []string {
 
 // Reserve the whole post before dispatch. A replay or crash can leave a recipient
 // unconfirmed, but can never turn a refresh into a second delivery.
-func (s *Server) sendGroup(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+func (s *Server) sendGroup(w http.ResponseWriter, r *http.Request, ctx context.Context, prefix string) {
 	if !s.groupEnabled() {
 		http.NotFound(w, r)
 		return
@@ -60,7 +63,7 @@ func (s *Server) sendGroup(w http.ResponseWriter, r *http.Request, ctx context.C
 		problem(w, 400, "Choose the recipients and write a message up to 16 KiB.")
 		return
 	}
-	id := "owner-group-" + digest(in.Key)[:40]
+	id := prefix + digest(in.Key)[:40]
 	res, err := s.ledger.db.ExecContext(ctx, `INSERT INTO owner_web_group_posts(owner,post_id,audience,body,created_at)
  VALUES(?,?,?,?,?) ON CONFLICT(owner,post_id) DO NOTHING`, s.cfg.Agent, id, in.Audience, in.Body, time.Now().UnixMilli())
 	if err != nil {
@@ -89,23 +92,31 @@ func (s *Server) sendGroup(w http.ResponseWriter, r *http.Request, ctx context.C
 	// Once accepted, finish both attempts even if the user closes their tab.
 	dispatch, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	defer cancel()
+	body := in.Body
+	if prefix == sharedPostPrefix {
+		body, err = s.sharedPrompt(dispatch, id, in.Body)
+		if err != nil {
+			output(w, 201, map[string]any{"id": id, "unconfirmed": targets})
+			return
+		}
+	}
 	var unconfirmed []string
 	for _, name := range targets {
-		if _, err := s.backend.SendGrouped(dispatch, name, in.Body, id); err != nil {
+		if _, err := s.backend.SendGrouped(dispatch, name, body, id); err != nil {
 			unconfirmed = append(unconfirmed, name)
 		}
 	}
 	output(w, 201, map[string]any{"id": id, "unconfirmed": unconfirmed})
 }
 
-func (s *Server) groupPosts(ctx context.Context) ([]groupPost, error) {
+func (s *Server) groupPosts(ctx context.Context, prefix string) ([]groupPost, error) {
 	// Membership comes from persisted owner-scoped metadata, never user text.
 	rows, err := s.ledger.db.QueryContext(ctx, `WITH recent AS (
- SELECT * FROM owner_web_group_posts WHERE owner=? ORDER BY created_at DESC,rowid DESC LIMIT 20
+ SELECT * FROM owner_web_group_posts WHERE owner=? AND post_id GLOB ? ORDER BY created_at DESC,rowid DESC LIMIT 20
 ) SELECT p.post_id,p.audience,p.body,p.created_at,COALESCE(r.id,'')
  FROM recent p LEFT JOIN requests r ON r.from_agent=p.owner AND r.group_id=p.post_id
  AND ((p.audience='both' AND r.to_agent IN ('muse','dot-web')) OR p.audience=r.to_agent)
- ORDER BY p.created_at,p.post_id,r.created_at,r.id`, s.cfg.Agent)
+ ORDER BY p.created_at,p.post_id,r.created_at,r.id`, s.cfg.Agent, prefix+"*")
 	if err != nil {
 		return nil, err
 	}

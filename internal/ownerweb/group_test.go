@@ -115,3 +115,89 @@ func TestGroupPartialSendIsNotRetried(t *testing.T) {
 		t.Fatalf("requires both configured agents: %d", code)
 	}
 }
+
+func TestSharedThreadOnlySuppliesReleasedSharedContextToSelectedResponders(t *testing.T) {
+	e := webSetupTargets(t, []string{"muse", "dot-web"}, nil)
+	e.login(t)
+	post := func(path, audience, body, key string, want int) {
+		t.Helper()
+		code, raw, _ := e.request(t, "POST", "/api/"+path, map[string]string{"audience": audience, "body": body, "submission_key": key})
+		if code != want || strings.Contains(string(raw), `"unconfirmed":[`) {
+			t.Fatalf("%s: %d %s", path, code, raw)
+		}
+	}
+	e.send(t, "private-direct-not-shared", "DIRECT SECRET")
+	post("group", "muse", "LEGACY SECRET", "legacy-partition-key-001", 201)
+	post("shared", "muse", "PENDING SECRET", "pending-partition-key-001", 201)
+	post("shared", "dot-web", "Suggest a landing page.", "first-shared-post-key-01", 201)
+	dot := e.m.Client(t, "dot-web")
+	in, err := dot.Poll(t.Context(), 0)
+	if err != nil || len(in.Requests) != 1 || in.Requests[0].Body != "Suggest a landing page." {
+		t.Fatalf("first shared ask: %+v %v", in, err)
+	}
+	first := in.Requests[0].ID
+	if _, err = dot.Claim(t.Context(), first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = dot.Reply(t.Context(), first, "Lead with a live demo.", envelope.StatusAnswered); err != nil {
+		t.Fatal(err)
+	}
+	otherOwner := "different-owner"
+	if _, err = e.m.Store.DB().Exec(`INSERT INTO owner_web_group_posts(owner,post_id,audience,body,created_at) VALUES(?,?,?,?,?)`, otherOwner, "owner-shared-unrelated", "both", "OTHER OWNER SECRET", 1); err != nil {
+		t.Fatal(err)
+	}
+	post("shared", "muse", "What would you change?", "next-shared-post-key-002", 201)
+	post("shared", "muse", "What would you change?", "next-shared-post-key-002", 200)
+	code, raw, _ := e.request(t, "GET", "/api/requests", nil)
+	var data struct {
+		Direct []client.Result         `json:"requests"`
+		Old    []struct{ Body string } `json:"group_posts"`
+		Shared []struct {
+			Body     string
+			Requests []client.Result
+		} `json:"shared_posts"`
+	}
+	if code != 200 || json.Unmarshal(raw, &data) != nil || len(data.Direct) != 1 || len(data.Old) != 1 || len(data.Shared) != 3 {
+		t.Fatalf("history: %s", raw)
+	}
+	if data.Old[0].Body != "LEGACY SECRET" || data.Direct[0].Request.Body != "DIRECT SECRET" {
+		t.Fatal("direct or earlier group misclassified")
+	}
+	var id string
+	for _, p := range data.Shared {
+		if p.Body != "What would you change?" {
+			continue
+		}
+		if len(p.Requests) != 1 || p.Requests[0].Request.To != "muse" || p.Requests[0].Status != envelope.StatusHeld {
+			t.Fatal("incorrect route or gate")
+		}
+		id = p.Requests[0].Request.ID
+	}
+	if id == "" {
+		t.Fatal("missing follow-up")
+	}
+	code, raw, _ = e.request(t, "POST", "/api/requests/"+id+"/review", map[string]string{})
+	var review struct{ Request envelope.Request }
+	if code != 200 || json.Unmarshal(raw, &review) != nil {
+		t.Fatalf("review: %d %s", code, raw)
+	}
+	body := review.Request.Body
+	for _, text := range []string{"Owner: Suggest a landing page.", "Dot: Lead with a live demo.", "What would you change?"} {
+		if !strings.Contains(body, text) {
+			t.Fatalf("missing %q: %s", text, body)
+		}
+	}
+	if strings.Contains(body, "SECRET") {
+		t.Fatalf("private or held material in outgoing context: %s", body)
+	}
+	in, err = dot.Poll(t.Context(), 0)
+	if err != nil || len(in.Requests) != 0 {
+		t.Fatal("Dot received another ask or an automatic reply")
+	}
+	maxBody := strings.Repeat("界", 5461) + "!"
+	post("shared", "dot-web", maxBody, "maximum-shared-post-key-03", 201)
+	in, err = dot.Poll(t.Context(), 0)
+	if err != nil || len(in.Requests) != 1 || in.Requests[0].Body != maxBody {
+		t.Fatal("shared context displaced the full-size user message")
+	}
+}

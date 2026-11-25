@@ -173,6 +173,7 @@ test('group address and displayed recipients agree; direct drafts are never forw
     return response({targets:h.ui.state.targets, requests:[], group_posts:[]});
   });
   h.ui.state.groupEnabled = true;
+  h.ui.state.posts = [{id:'old-post',body:'Earlier message',created_at:new Date().toISOString()}];
   h.ui.state.targets.push({name:'dot-web', online:true});
   const ta = h.el('request-body');
   ta.value = 'private draft';
@@ -215,4 +216,30 @@ test('one group post shows both outcomes, appears once and stays outside the dir
   assert.equal(h.el('feed').textContent.split('shared post').length, 2);
   assert.match(h.el('feed').textContent,/group reply/);
   assert.match(h.el('feed').textContent,/Dot · Delivery unconfirmed/);
+});
+
+test('shared thread uses mentions and offers the other agent on a reply', async () => {
+  const writes=[];
+  const h=harness(async (url,o)=>{
+    if(o.method==='POST') { writes.push({path:url.pathname,...JSON.parse(o.body)}); return response({id:'post'}); }
+    return response({targets:h.ui.state.targets,requests:[],shared_posts:h.ui.state.shared});
+  });
+  h.ui.state.groupEnabled=true;
+  h.ui.state.audience='dot-web'; // An earlier group preference cannot narrow a new shared turn.
+  h.ui.state.targets.push({name:'dot-web',online:true});
+  const reply=item('Landing page idea','answered',{from:'muse',body:'Lead with a demo.',status:'answered',created_at:new Date().toISOString()});
+  reply.request.group='owner-shared-sample';
+  h.ui.state.shared=[{id:reply.request.group,audience:'muse',body:'Landing page idea',created_at:reply.request.created_at,requests:[reply]}];
+  h.ui.state.items=[reply];
+  h.ui.render(); await openConversation(h,'shared/muse-dot');
+  assert.equal(h.el('group-route').hidden,true);
+  assert.match(h.el('head-presence').textContent,/Both agents can see/);
+  const ta=h.el('request-body'); ta.value='First question'; await h.el('compose').fire('submit');
+  assert.equal(writes.at(-1).path,'/api/shared'); assert.equal(writes.at(-1).audience,'both');
+  const ask=descendants(h.el('feed')).find(n=>n.tagName==='BUTTON' && n.textContent==='Ask Dot about this');
+  assert.ok(ask); await ask.fire('click');
+  assert.equal(ta.value,'@Dot ');ta.value+='What would you change?';await h.el('compose').fire('submit');
+  assert.equal(writes.at(-1).audience,'dot-web');assert.match(writes.at(-1).body,/Muse replied:\n> Lead with a demo\./);
+  await openConversation(h,'muse');assert(!h.el('feed').textContent.includes('Lead with a demo.'));
+  h.ui.signedOut();assert.equal(h.ui.state.shared.length,0);
 });

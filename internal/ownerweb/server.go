@@ -211,17 +211,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.backendError(w, err)
 			return
 		}
-		var posts []groupPost
+		var posts, shared []groupPost
 		if s.groupEnabled() {
-			posts, err = s.groupPosts(ctx)
+			posts, err = s.groupPosts(ctx, legacyPostPrefix)
+			if err == nil {
+				shared, err = s.groupPosts(ctx, sharedPostPrefix)
+			}
 			if err != nil {
 				s.backendError(w, err)
 				return
 			}
 		}
-		output(w, 200, map[string]any{"requests": items, "group_posts": posts})
+		output(w, 200, map[string]any{"requests": items, "group_posts": posts, "shared_posts": shared})
 	case path == "api/group" && r.Method == "POST":
-		s.sendGroup(w, r, ctx)
+		s.sendGroup(w, r, ctx, legacyPostPrefix)
+	case path == "api/shared" && r.Method == "POST":
+		s.sendGroup(w, r, ctx, sharedPostPrefix)
 	case path == "api/requests" && r.Method == "POST":
 		s.send(w, r, ctx)
 	case strings.HasPrefix(path, "api/requests/"):
