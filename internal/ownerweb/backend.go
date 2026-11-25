@@ -22,6 +22,7 @@ type Backend interface {
 	List(context.Context) ([]client.Result, error)
 	Get(context.Context, string) (client.Result, error)
 	Send(context.Context, string, string) (envelope.SendResponse, error)
+	SendGrouped(context.Context, string, string, string) (envelope.SendResponse, error)
 	Decide(context.Context, string, string) error
 }
 
@@ -36,6 +37,7 @@ type Target struct {
 }
 
 type RelayBackend struct {
+	DirectIDs       func(context.Context, string) ([]string, error)
 	DeliveryHistory func(context.Context, string, string) (store.OwnerDelivery, error)
 	Agent           string
 	Targets         []string
@@ -69,25 +71,16 @@ func (b *RelayBackend) Agents(ctx context.Context) ([]Target, error) {
 }
 
 func (b *RelayBackend) List(ctx context.Context) ([]client.Result, error) {
-	var out struct {
-		Traces []client.Result `json:"traces"`
-	}
-	// Recent trace listings require an admin device. The server fixes the
-	// owner filter here, then independently filters every returned row and
-	// reads full bodies with the unprivileged owner client below.
-	err := b.Admin.Raw(ctx, "GET", "/v1/trace?limit=20&exclude_pings=true&from="+url.QueryEscape(b.Agent), nil, &out)
+	ids, err := b.DirectIDs(ctx, b.Agent)
 	if err != nil {
 		return nil, err
 	}
 	items := []client.Result{}
-	for _, item := range out.Traces {
-		if item.Request.From != b.Agent || !b.allowed(item.Request.To) {
+	for _, id := range ids {
+		full, err := b.Get(ctx, id)
+		if errors.Is(err, ErrNotFound) {
 			continue
 		}
-		// Trace listings can be previews. Read each own request for its full
-		// body, latest state and reply rather than presenting an excerpt as
-		// the text the owner is approving.
-		full, err := b.Get(ctx, item.Request.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -111,10 +104,14 @@ func (b *RelayBackend) Get(ctx context.Context, id string) (client.Result, error
 }
 
 func (b *RelayBackend) Send(ctx context.Context, target, body string) (envelope.SendResponse, error) {
+	return b.SendGrouped(ctx, target, body, "")
+}
+
+func (b *RelayBackend) SendGrouped(ctx context.Context, target, body, group string) (envelope.SendResponse, error) {
 	if !b.allowed(target) {
 		return envelope.SendResponse{}, ErrNotFound
 	}
-	return b.Client.SendGrouped(ctx, target, body, envelope.KindAsk, "", "")
+	return b.Client.SendGrouped(ctx, target, body, envelope.KindAsk, "", group)
 }
 
 func (b *RelayBackend) Decide(ctx context.Context, id, decision string) error {

@@ -25,9 +25,16 @@ function main() {
     epoch: 0, controllers: new Set(), reviewPending: false, csrf: '', items: [], targets: [], target: null, busy: false, polling: false, connected: true,
     submission: null, review: null, interval: null, followUp: null, loaded: false,
     nodes: new Map(), days: new Map(), expanded: new Set(), lastStatus: new Map(), fixture: false,
-    view: 'home', tab: 'agents',
+    view: 'home', tab: 'agents', groupEnabled: false, posts: [], audience: 'both',
   };
 
+  // The slash cannot collide with a valid relay agent name.
+  const GROUP = 'group/muse-dot';
+  const groupLabel = 'Muse + Dot';
+  const audienceLabel = { both: 'Muse and Dot', muse: 'Muse', 'dot-web': 'Dot' };
+  const recipients = a => a === 'both' ? ['muse', 'dot-web'] : [a];
+  const conversation = it => it.request.group?.startsWith('owner-group-') ? GROUP : it.request.to;
+  const chatLabel = name => name === GROUP ? groupLabel : cap(name);
   const STATUS = {
     held: { label: 'Needs approval', tone: 'amber' },
     queued: { label: 'Queued', tone: 'blue' },
@@ -231,7 +238,7 @@ function main() {
       if (epoch !== state.epoch) throw Object.assign(new Error('Session changed.'), { cancelled: true });
       if (res.headers.get('X-Tincan-Test-Fixture') === '1' && !state.fixture) {
         state.fixture = true;
-        for (const b of document.querySelectorAll('[data-mode-badge]')) { b.textContent = 'Local test · simulated Muse'; b.hidden = false; }
+        for (const b of document.querySelectorAll('[data-mode-badge]')) { b.textContent = 'Local test · simulated agents'; b.hidden = false; }
       }
       if (!res.ok) {
         if (res.status === 401 && path !== 'login') signedOut();
@@ -252,6 +259,9 @@ function main() {
     state.controllers.clear();
     state.railSig = ''; state.busy = false; state.polling = false; state.connected = false; state.target = null; state.reviewPending = false;
     state.csrf = ''; state.items = []; state.targets = []; state.submission = null; state.review = null; state.followUp = null; state.loaded = false;
+    state.groupEnabled = false; state.posts = []; state.audience = 'both';
+    $('group-route').hidden = true; $('group-audience').value = 'both';
+    try { sessionStorage.removeItem('tincan-group-audience'); } catch { /* private storage */ }
     state.nodes.clear(); state.days.clear(); state.expanded.clear(); state.lastStatus.clear();
     clearInterval(state.interval); state.interval = null;
     $('feed').replaceChildren(); $('sending-slot').replaceChildren(); $('conversations').replaceChildren(); $('approvals').replaceChildren();
@@ -275,6 +285,11 @@ function main() {
     const sess = await api('session');
     if (epoch !== state.epoch) return;
     state.csrf = sess.csrf;
+    state.groupEnabled = sess.group_chat === true;
+    try {
+      const saved = sessionStorage.getItem('tincan-group-audience');
+      if (Object.hasOwn(audienceLabel, saved)) state.audience = saved;
+    } catch { /* private storage */ }
     $('login-view').hidden = true; $('workspace').hidden = false;
     restoreDrafts();
     await refresh();
@@ -294,7 +309,8 @@ function main() {
       const [agents, requests] = await Promise.all([api('targets'), api('requests')]);
       if (epoch !== state.epoch) return;
       state.targets = agents.targets || [];
-      state.items = (requests.requests || []).slice().sort((a, b) => new Date(a.request.created_at) - new Date(b.request.created_at));
+      state.posts = requests.group_posts || [];
+      state.items = (requests.requests || []).concat(state.posts.flatMap(p => p.requests || [])).sort((a, b) => new Date(a.request.created_at) - new Date(b.request.created_at));
       state.connected = true; setConn(true); notice('');
       render();
     } catch (e) {
@@ -345,14 +361,14 @@ function main() {
 
   function render() {
     const names = targetNames();
-    if (!names.includes(state.target)) selectTarget(names[0] || null);
+    if (!(state.target === GROUP && state.groupEnabled) && !names.includes(state.target)) selectTarget(names[0] || null);
     renderRail(names);
     renderHead();
     renderFeed();
     updateSend();
     const n = held().length;
-    document.title = (n ? '(' + n + ') ' : '') + 'Tincan' + (state.target ? ' · ' + cap(state.target) : '');
-    const elsewhere = state.items.filter(i => i.status === 'held' && i.request.to !== state.target).length;
+    document.title = (n ? '(' + n + ') ' : '') + 'Tincan' + (state.target ? ' · ' + chatLabel(state.target) : '');
+    const elsewhere = state.items.filter(i => i.status === 'held' && conversation(i) !== state.target).length;
     $('menu-dot').textContent = elsewhere ? String(elsewhere) : ''; $('menu-dot').hidden = !elsewhere;
     $('back').setAttribute('aria-label', 'Back to agents' + (elsewhere ? ', ' + elsewhere + ' waiting for approval' : ''));
     $('tab-badge').textContent = n ? String(n) : ''; $('tab-badge').hidden = !n;
@@ -362,7 +378,7 @@ function main() {
   const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
   function renderRail(names) {
-    const sig = JSON.stringify([names, state.target, state.targets, state.items]);
+    const sig = JSON.stringify([names, state.target, state.targets, state.items, state.groupEnabled, state.posts]);
     if (state.railSig === sig) return;
     state.railSig = sig;
     const focused = document.activeElement;
@@ -380,8 +396,15 @@ function main() {
     $('summary').replaceChildren(...pills);
 
     const list = $('conversations'); list.replaceChildren();
+    if (state.groupEnabled) {
+      const last = state.posts.at(-1);
+      list.append(h('li', {}, h('button', { type: 'button', class: 'convo', 'data-conversation': GROUP,
+        'aria-current': String(state.target === GROUP), onclick: () => openChat(GROUP) },
+        avatar(groupLabel), h('span', { class: 'convo-main' }, h('strong', { text: groupLabel }),
+          h('span', { class: 'convo-preview', text: last ? oneLine(last.body).slice(0, 140) : 'Group chat' })), chevron())));
+    }
     for (const name of names) {
-      const items = state.items.filter(i => i.request.to === name);
+      const items = state.items.filter(i => conversation(i) === name);
       const last = items[items.length - 1];
       const pending = items.filter(i => i.status === 'held').length;
       const rep = last && agentReply(last);
@@ -413,14 +436,14 @@ function main() {
         h('p', { class: 'appr-text', text: oneLine(plain(it.request.body)) }),
         h('div', { class: 'appr-actions' },
           h('button', { type: 'button', class: 'btn btn-primary', 'data-review': it.request.id, onclick: () => openReview(it.request.id) }, icon('shield'), 'Review'),
-          h('button', { type: 'button', class: 'btn btn-ghost', onclick: () => openChat(name, it) }, 'Open chat')))));
+          h('button', { type: 'button', class: 'btn btn-ghost', onclick: () => openChat(conversation(it), it) }, 'Open chat')))));
     }
 
     $('activity-section').hidden = !active.length;
     const act = $('activity'); act.replaceChildren();
     for (const it of active) {
       const name = it.request.to;
-      act.append(h('li', {}, h('button', { type: 'button', class: 'act', onclick: () => openChat(name, it) },
+      act.append(h('li', {}, h('button', { type: 'button', class: 'act', onclick: () => openChat(conversation(it), it) },
         avatar(name, 'avatar-sm', presenceKey(targetInfo(name))),
         h('span', { class: 'act-main' },
           h('span', { class: 'act-top' }, h('span', { text: cap(name) }), chip(it.status, true)),
@@ -495,9 +518,10 @@ function main() {
     renderDelivery(t);
     const key = presenceKey(t);
     $('head-avatar').replaceWith(Object.assign(avatar(name || '?', '', name ? key : ''), { id: 'head-avatar' }));
-    $('head-name').textContent = name ? cap(name) : 'No agents yet';
+    $('head-name').textContent = name ? chatLabel(name) : 'No agents yet';
     const p = $('head-presence'); p.replaceChildren();
-    if (!name) p.textContent = 'Connect an agent to the relay to start a conversation.';
+    if (name === GROUP) p.textContent = 'Shared conversation · choose who receives each post';
+    else if (!name) p.textContent = 'Connect an agent to the relay to start a conversation.';
     else if (t && t.status === 'stuck' && t.status_reason) p.append(h('b', { text: 'Stuck' }), ' · ' + t.status_reason);
     else p.textContent = PRESENCE[key] || key;
   }
@@ -512,25 +536,28 @@ function main() {
   function renderFeed() {
     const tl = $('timeline'), feed = $('feed');
     const nearBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 140;
-    const items = state.items.filter(i => i.request.to === state.target);
+    const group = state.target === GROUP;
+    const items = group ? state.posts : state.items.filter(i => conversation(i) === state.target);
     const wanted = []; let lastDay = ''; let changed = false; let gotReply = false;
     if (items.length >= 20) wanted.push(state.days.get('cap') || (state.days.set('cap', h('li', { class: 'day' }, h('span', { text: 'Showing your 20 most recent requests' }))), state.days.get('cap')));
     for (const it of items) {
-      const d = new Date(it.request.created_at), k = dayKey(d);
+      const d = new Date(group ? it.created_at : it.request.created_at), k = dayKey(d);
       if (k !== lastDay) {
         if (!state.days.has(k)) state.days.set(k, h('li', { class: 'day' }, h('span', { text: dayLabel(d) })));
         wanted.push(state.days.get(k)); lastDay = k;
       }
-      const id = it.request.id, sig = signature(it);
+      const id = group ? it.id : it.request.id;
+      const sig = group ? JSON.stringify([it, (it.requests || []).map(signature)]) : signature(it);
+      const answered = group ? (it.requests || []).some(agentReply) : !!agentReply(it);
       let rec = state.nodes.get(id);
       if (!rec || rec.sig !== sig) {
-        const el = buildTurn(it);
+        const el = group ? buildGroupPost(it) : buildTurn(it);
         if (!rec && state.loaded) el.classList.add('enter');
-        if (rec) { rec.el.replaceWith(el); if (!rec.hadReply && agentReply(it)) gotReply = true; }
-        rec = { sig, el, hadReply: !!agentReply(it) }; state.nodes.set(id, rec); changed = true;
+        if (rec) { rec.el.replaceWith(el); if (!rec.hadReply && answered) gotReply = true; }
+        rec = { sig, el, hadReply: answered }; state.nodes.set(id, rec); changed = true;
       }
       const prev = state.lastStatus.get(id);
-      if (state.loaded && prev && prev !== it.status) say(cap(it.request.to) + ': ' + (STATUS[it.status] || { label: it.status }).label);
+      if (!group && state.loaded && prev && prev !== it.status) say(cap(it.request.to) + ': ' + (STATUS[it.status] || { label: it.status }).label);
       state.lastStatus.set(id, it.status);
       wanted.push(rec.el);
     }
@@ -547,10 +574,11 @@ function main() {
 
   function renderEmpty() {
     const name = state.target;
-    $('empty-title').textContent = name ? 'Start a conversation with ' + cap(name) : 'No agents connected';
+    $('empty-title').textContent = name ? 'Start a conversation with ' + chatLabel(name) : 'No agents connected';
     $('empty-text').textContent = name
       ? 'Everything you send lands here as one continuous thread — approvals, progress and replies in line, oldest at the top.'
       : 'Once an agent joins the relay, it shows up here and you can message it.';
+    if (name === GROUP) $('empty-text').textContent = 'Send a message to both agents or choose one. Their replies appear here. Previous messages are only shared when you quote them.';
     const s = $('starters'); s.replaceChildren();
     if (!name) return;
     for (const [label, text] of STARTERS) s.append(h('button', { type: 'button', class: 'starter', onclick: () => { const ta = $('request-body'); ta.value = text; autosize(); ta.focus(); ta.setSelectionRange(text.length, text.length); saveDraft(); } }, icon('spark'), label));
@@ -591,14 +619,28 @@ function main() {
         h('time', { 'data-elapsed': it.request.created_at, title: 'Time since sent' })));
   }
 
-  function buildTurn(it) {
+  function buildGroupPost(post) {
+    const li = h('li', { class: 'turn', 'data-id': post.id });
+    li.append(h('div', { class: 'msg msg-you' }, h('div', { class: 'msg-body' },
+      h('div', { class: 'bubble bubble-you' }, rich(post.body)),
+      h('div', { class: 'meta', text: 'You → ' + audienceLabel[post.audience] + ' · ' + time(new Date(post.created_at)) }))));
+    for (const name of recipients(post.audience)) {
+      const it = (post.requests || []).find(r => r.request.to === name);
+      if (it) li.append(buildTurn(it, true));
+      else li.append(h('p', { class: 'sysline', text: audienceLabel[name] + ' · Delivery unconfirmed. Check here before sending again.' }));
+    }
+    return li;
+  }
+
+  function buildTurn(it, grouped = false) {
     const id = it.request.id, req = it.request, to = cap(req.to);
     const sent = new Date(req.created_at);
-    const li = h('li', { class: 'turn', 'data-id': id });
+    const li = h(grouped ? 'div' : 'li', { class: grouped ? 'group-delivery' : 'turn', 'data-id': id });
 
     // Your message
     const youBubble = h('div', { class: 'bubble bubble-you' }, rich(req.body));
-    li.append(h('div', { class: 'msg msg-you' }, h('div', { class: 'msg-body' },
+    if (grouped) li.append(h('div', { class: 'meta' }, h('strong', { text: audienceLabel[req.to] }), chip(it.status)));
+    else li.append(h('div', { class: 'msg msg-you' }, h('div', { class: 'msg-body' },
       ...clampable(youBubble, id + ':q', req.body),
       h('div', { class: 'meta' },
         ACTIVE.has(it.status) ? null : h('span', { class: 'tools' },
@@ -675,7 +717,7 @@ function main() {
     if (tl.scrollHeight - tl.scrollTop - tl.clientHeight < 60) $('jump').hidden = true;
   }, { passive: true });
   function focusTurn(it) {
-    if (state.target !== it.request.to) { selectTarget(it.request.to); render(); }
+    if (state.target !== conversation(it)) { selectTarget(conversation(it)); render(); }
     const el = $('feed').querySelector('[data-id="' + CSS.escape(it.request.id) + '"]');
     if (!el) return;
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -692,18 +734,40 @@ function main() {
     updateSend();
   }
   function updateSend() {
+    const group = state.target === GROUP;
+    $('group-route').hidden = !group;
+    const route = group ? groupRoute(ta.value) : null;
+    $('group-audience').value = route?.audience || state.audience;
+    $('group-audience').disabled = !!(group && ta.value.trimStart().startsWith('@'));
     const btn = $('send');
-    btn.disabled = state.busy || !state.connected || !state.target || !targetInfo(state.target) || !ta.value.trim();
+    btn.disabled = state.busy || !state.connected || !state.target || !(group ? state.groupEnabled : targetInfo(state.target)) || !ta.value.trim();
     btn.classList.toggle('busy', state.busy);
     const t = targetInfo(state.target), hint = $('target-hint');
-    const offline = state.target && presenceKey(t) === 'offline';
+    const offline = !group && state.target && presenceKey(t) === 'offline';
     hint.classList.toggle('offline', !!offline);
-    hint.lastElementChild.textContent = !state.target ? 'No agent available to message yet.'
+    hint.lastElementChild.textContent = group ? (route.error || 'Only this message and any quote you include go to ' + audienceLabel[route.audience] + '.')
+      : !state.target ? 'No agent available to message yet.'
       : !t ? cap(state.target) + ' isn’t connected to the relay right now.'
       : offline ? cap(state.target) + ' is offline. Your request can wait in the queue.'
       : 'Requests may wait for your approval before delivery.';
-    ta.placeholder = state.target ? 'Message ' + cap(state.target) + '…' : 'Message…';
+    ta.placeholder = state.target ? 'Message ' + chatLabel(state.target) + '…' : 'Message…';
   }
+  function groupRoute(value) {
+    const text = value.trim();
+    if (!text.startsWith('@')) return { audience: state.audience, text };
+    const match = /^@(muse|dot(?:-web)?|both)(?=$|[\s:,])[:,]?\s*/i.exec(text);
+    if (!match) return { error: 'Start with @Muse, @Dot or @Both to address this post.' };
+    const body = text.slice(match[0].length);
+    if (body.startsWith('@')) return { error: 'Use @Both to send to both agents.' };
+    const name = match[1].toLowerCase();
+    return { audience: name.startsWith('dot') ? 'dot-web' : name, text: body };
+  }
+  function setAudience(value) {
+    state.audience = value;
+    try { sessionStorage.setItem('tincan-group-audience', value); } catch { /* private storage */ }
+    updateSend();
+  }
+  $('group-audience').addEventListener('change', () => setAudience($('group-audience').value));
   const DRAFTS = 'tincan-conversation-drafts';
   const drafts = new Map();
   function writeDraft(target, value) {
@@ -741,7 +805,8 @@ function main() {
   const plain = body => body;
   function excerpt(text, n) { const t = text.replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t; }
   function followUp(it, question) {
-    setContext({ id: it.request.id, target: it.request.to, request: excerpt(it.request.body, 220), reply: question ? excerpt(question, 280) : it.reply ? excerpt(it.reply.body, 280) : '', question: !!question });
+    if (state.target === GROUP) setAudience(it.request.to);
+    setContext({ id: it.request.id, target: conversation(it), author: it.request.to, request: excerpt(it.request.body, 220), reply: question ? excerpt(question, 280) : it.reply ? excerpt(it.reply.body, 280) : '', question: !!question });
     ta.focus();
   }
   function setContext(ctx) {
@@ -760,6 +825,7 @@ function main() {
     if (!c || c.target !== state.target) return text;
     const quote = s => s.split('\n').map(l => '> ' + l).join('\n');
     let out = 'Follow-up to my earlier request:\n' + quote(c.request);
+    if (c.reply && state.target === GROUP) return out + '\n\n' + audienceLabel[c.author] + (c.question ? ' asked:' : ' replied:') + '\n' + quote(c.reply) + '\n\n' + text;
     if (c.reply) out += '\n\n' + (c.question ? 'You asked:' : 'Your reply began:') + '\n' + quote(c.reply);
     return out + '\n\n' + text;
   }
@@ -771,20 +837,28 @@ function main() {
     const draft = ta.value, context = state.followUp;
     const text = draft.trim(), target = state.target;
     if (!text || !target) return;
-    const body = compose(text);
+    const group = target === GROUP;
+    const route = group ? groupRoute(text) : null;
+    if (group && (!state.groupEnabled || route.error || !route.text)) {
+      error('request-error', route.error || 'Write a message after the recipient.'); return;
+    }
+    const audience = route?.audience;
+    const body = compose(group ? route.text : text);
     if (byteLength(body) > MAX_BODY) { error('request-error', 'Message including follow-up context exceeds 16 KiB. Shorten it before sending.'); return; }
     // JSON escaping can exceed the existing 20 KiB request envelope even when the body fits.
     if (byteLength(JSON.stringify({ target, body, submission_key: '0'.repeat(36) })) > 20 * 1024) { error('request-error', 'Message encoding is too large. Shorten it before sending.'); return; }
-    const same = state.submission && state.submission.body === body && state.submission.target === target;
+    const same = state.submission && state.submission.body === body && state.submission.target === target && state.submission.audience === audience;
     if (same && state.submission.uncertain) { error('request-error', 'This request may already be in your conversation. Refresh and check it before creating another.'); return; }
-    if (!same) state.submission = { key: crypto.randomUUID(), body, target, uncertain: false };
+    if (!same) state.submission = { key: crypto.randomUUID(), body, target, audience, uncertain: false };
     const submission = state.submission;
     state.busy = true; updateSend(); error('request-error', '');
     $('sending-slot').hidden = false;
     $('sending-slot').replaceChildren(h('div', { class: 'sending' }, h('div', { class: 'bubble bubble-you' }, rich(body)), h('div', { class: 'meta' }, h('span', { class: 'chip', text: 'Sending…' }))));
     scrollBottom(false);
     try {
-      const sent = await api('requests', { target, body, submission_key: submission.key });
+      const sent = group
+        ? await api('group', { audience, body, submission_key: submission.key })
+        : await api('requests', { target, body, submission_key: submission.key });
       if (epoch !== state.epoch) return;
       state.submission = null;
       if (ta.value === draft && state.followUp === context && state.target === target) {
@@ -793,7 +867,8 @@ function main() {
         writeDraft(target, '');
       }
       autosize();
-      const msg = sent.status === 'held' ? 'Sent — waiting for your approval' : 'Sent to ' + cap(target);
+      const msg = group ? (sent.unconfirmed?.length ? 'Post saved. Check delivery for ' + sent.unconfirmed.map(n => audienceLabel[n]).join(' and ') : 'Posted to ' + audienceLabel[audience])
+        : sent.status === 'held' ? 'Sent — waiting for your approval' : 'Sent to ' + cap(target);
       say(msg + '.'); toast(msg, sent.status === 'held' ? 'shield' : 'check');
       $('sending-slot').replaceChildren();
       await refresh();

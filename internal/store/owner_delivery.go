@@ -65,3 +65,22 @@ UNION ALL SELECT * FROM (
 	}
 	return d, rows.Err()
 }
+
+// OwnerDirectIDs excludes shared posts before limiting the direct inbox.
+func (s *Store) OwnerDirectIDs(ctx context.Context, owner string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM requests WHERE from_agent=? AND (hop=1 OR parent_id='') AND kind!='ping'
+	AND group_id NOT GLOB 'owner-group-*' ORDER BY created_at DESC,id DESC LIMIT 20`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

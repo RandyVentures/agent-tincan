@@ -21,7 +21,7 @@ func TestOwnerWebInteractivePreview(t *testing.T) {
 	if os.Getenv("TINCAN_OWNER_WEB_PREVIEW") != "1" {
 		t.Skip("manual local integration preview only")
 	}
-	e := webSetup(t)
+	e := webSetupTargets(t, []string{"muse", "dot-web"}, nil)
 	path := os.Getenv("TINCAN_OWNER_WEB_PREVIEW_INFO")
 	if path == "" {
 		t.Fatal("set a task-local preview info path")
@@ -43,27 +43,30 @@ func TestOwnerWebInteractivePreview(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Minute)
 	defer cancel()
 	var wg sync.WaitGroup
-	wg.Go(func() {
-		ticker := time.NewTicker(300 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				in, err := e.m.Client(t, "muse").Poll(ctx, 0)
-				if err != nil {
-					continue
-				}
-				for _, req := range in.Requests {
-					if _, err := e.m.Client(t, "muse").Claim(ctx, req.ID); err != nil {
+	for _, name := range e.cfg.Targets {
+		agent := e.m.Client(t, name)
+		wg.Go(func() {
+			ticker := time.NewTicker(300 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					in, err := agent.Poll(ctx, 0)
+					if err != nil {
 						continue
 					}
-					e.m.Client(t, "muse").Reply(ctx, req.ID, "LOCAL RELAY TEST: Your request passed authentication, the approval gate, delivery and reply storage. This answer is from a scripted test agent; external Muse is not connected.", envelope.StatusAnswered)
+					for _, req := range in.Requests {
+						if _, err := agent.Claim(ctx, req.ID); err != nil {
+							continue
+						}
+						agent.Reply(ctx, req.ID, "LOCAL RELAY TEST: Scripted reply from "+name+". No external agent was contacted.", envelope.StatusAnswered)
+					}
 				}
 			}
-		}
-	})
+		})
+	}
 	t.Logf("Local integration preview ready at %s; external Muse is NOT connected", e.ts.URL)
 	<-ctx.Done()
 	cancel()

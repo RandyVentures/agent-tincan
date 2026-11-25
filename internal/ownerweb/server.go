@@ -184,7 +184,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if path == "api/session" && r.Method == "GET" {
-		output(w, 200, map[string]any{"csrf": sess.csrf, "targets": s.cfg.Targets, "expires_at": sess.expires})
+		output(w, 200, map[string]any{"csrf": sess.csrf, "targets": s.cfg.Targets, "group_chat": s.groupEnabled(), "expires_at": sess.expires})
 		return
 	}
 	if path == "api/logout" && r.Method == "POST" {
@@ -211,7 +211,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.backendError(w, err)
 			return
 		}
-		output(w, 200, map[string]any{"requests": items})
+		var posts []groupPost
+		if s.groupEnabled() {
+			posts, err = s.groupPosts(ctx)
+			if err != nil {
+				s.backendError(w, err)
+				return
+			}
+		}
+		output(w, 200, map[string]any{"requests": items, "group_posts": posts})
+	case path == "api/group" && r.Method == "POST":
+		s.sendGroup(w, r, ctx)
 	case path == "api/requests" && r.Method == "POST":
 		s.send(w, r, ctx)
 	case strings.HasPrefix(path, "api/requests/"):

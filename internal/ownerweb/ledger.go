@@ -24,6 +24,9 @@ func NewLedger(db *sql.DB) (*Ledger, error) {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS owner_web_submissions (
  key TEXT PRIMARY KEY, body_hash TEXT NOT NULL, state TEXT NOT NULL,
  result_json TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)`)
+	if err == nil {
+		_, err = db.Exec(groupSchema)
+	}
 	return &Ledger{db: db}, err
 }
 

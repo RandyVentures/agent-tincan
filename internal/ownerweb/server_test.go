@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -43,7 +44,15 @@ func webSetup(t *testing.T) *webEnv {
 
 func webSetupWith(t *testing.T, wrap func(ownerweb.Backend) ownerweb.Backend) *webEnv {
 	t.Helper()
+	return webSetupTargets(t, []string{"muse"}, wrap)
+}
+
+func webSetupTargets(t *testing.T, targets []string, wrap func(ownerweb.Backend) ownerweb.Backend) *webEnv {
+	t.Helper()
 	m := testrelay.New(t, relay.Config{})
+	if slices.Contains(targets, "dot-web") {
+		m.JoinOnMachineOf(t, "grokbot", "dot-web")
+	}
 	p := filepath.Join(t.TempDir(), "approval.json")
 	if err := os.WriteFile(p, []byte(`{"gate":{"muse":{"from":"*"}}}`), 0600); err != nil {
 		t.Fatal(err)
@@ -53,7 +62,7 @@ func webSetupWith(t *testing.T, wrap func(ownerweb.Backend) ownerweb.Backend) *w
 		t.Fatal(err)
 	}
 	m.Server.SetPreparer(policy.New(m.Store, policy.Config{Approval: a}))
-	backend, err := m.Server.OwnerWebBackend(t.Context(), "owner-web", []string{"muse"})
+	backend, err := m.Server.OwnerWebBackend(t.Context(), "owner-web", targets)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +87,7 @@ func webSetupWith(t *testing.T, wrap func(ownerweb.Backend) ownerweb.Backend) *w
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := ownerweb.Config{Listen: "127.0.0.1:0", PublicURL: "http://" + ts.Listener.Addr().String(), Agent: "owner-web", Targets: []string{"muse"}, PasswordHash: string(hash), Dev: true}
+	cfg := ownerweb.Config{Listen: "127.0.0.1:0", PublicURL: "http://" + ts.Listener.Addr().String(), Agent: "owner-web", Targets: targets, PasswordHash: string(hash), Dev: true}
 	var scoped ownerweb.Backend = backend
 	if wrap != nil {
 		scoped = wrap(scoped)
