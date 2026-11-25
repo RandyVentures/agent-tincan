@@ -306,6 +306,14 @@ kbd { font: 600 11px/1 var(--font); min-width: 20px; height: 20px; padding: 0 5p
 
 .notice { margin: 10px 24px 0; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; color: var(--amber); background: var(--amber-soft); border: 1px solid var(--amber-line); animation: rise .3s var(--ease); }
 
+.delivery { flex: none; border-bottom: 1px solid var(--line); padding: 0 18px; font-size: 13px; color: var(--ink-2); }
+.delivery summary { cursor: pointer; min-height: 44px; padding: 12px 0; }
+.delivery strong, .delivery dd { color: var(--ink); }
+.delivery dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+.delivery dd { margin: 0; overflow-wrap: anywhere; }
+.delivery p { margin: 8px 0 12px; }
+.delivery[open] { max-height: 35vh; overflow: auto; }
+
 /* Timeline */
 .timeline { overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; padding: 28px 24px 24px; outline: none; scrollbar-gutter: stable; }
 .feed { list-style: none; margin: 0 auto; padding: 0; max-width: 760px; display: grid; gap: 26px; }

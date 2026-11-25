@@ -26,7 +26,7 @@ func (s *Server) OwnerWebBackend(ctx context.Context, name string, targets []str
 	}
 	ask := client.NewRelayHTTP("http://tincan-relay", &http.Client{Transport: ownerTransport{s.Handler(), identity.VirtualAddr(name)}, Timeout: 15 * time.Second})
 	admin := client.NewRelayHTTP("http://tincan-relay", &http.Client{Transport: ownerTransport{s.AdminHandler(), ""}, Timeout: 15 * time.Second})
-	return &ownerweb.RelayBackend{Agent: name, Targets: targets, Client: ask, Admin: admin}, nil
+	return &ownerweb.RelayBackend{Agent: name, Targets: targets, DeliveryHistory: s.store.OwnerDelivery, Client: ask, Admin: admin}, nil
 }
 
 type ownerTransport struct {

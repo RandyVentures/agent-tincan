@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/url"
 	"slices"
+	"time"
 
 	"github.com/mvanhorn/agent-tincan/internal/client"
 	"github.com/mvanhorn/agent-tincan/internal/envelope"
+	"github.com/mvanhorn/agent-tincan/internal/store"
 )
 
 var ErrNotFound = errors.New("request not found")
@@ -24,17 +26,21 @@ type Backend interface {
 }
 
 type Target struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Online bool   `json:"online"`
-	Wake   string `json:"wake"`
+	Delivery         *store.OwnerDelivery `json:"delivery,omitempty"`
+	BrowserSignedOut bool                 `json:"browser_signed_out,omitempty"`
+	LimitedUntil     time.Time            `json:"limited_until,omitzero"`
+	Name             string               `json:"name"`
+	Status           string               `json:"status"`
+	Online           bool                 `json:"online"`
+	Wake             string               `json:"wake"`
 }
 
 type RelayBackend struct {
-	Agent   string
-	Targets []string
-	Client  *client.Relay
-	Admin   *client.Relay
+	DeliveryHistory func(context.Context, string, string) (store.OwnerDelivery, error)
+	Agent           string
+	Targets         []string
+	Client          *client.Relay
+	Admin           *client.Relay
 }
 
 func (b *RelayBackend) allowed(target string) bool {
@@ -49,7 +55,14 @@ func (b *RelayBackend) Agents(ctx context.Context) ([]Target, error) {
 	out := []Target{}
 	for _, a := range agents {
 		if b.allowed(a.Name) {
-			out = append(out, Target{Name: a.Name, Status: a.Status, Online: a.Online, Wake: a.Wake})
+			target := Target{Name: a.Name, Status: a.Status, Online: a.Online, Wake: a.Wake, BrowserSignedOut: a.SignedOutSite != "", LimitedUntil: a.LimitedUntil}
+			// Keep the conversation usable when history is unavailable.
+			if b.DeliveryHistory != nil {
+				if delivery, err := b.DeliveryHistory(ctx, b.Agent, a.Name); err == nil {
+					target.Delivery = &delivery
+				}
+			}
+			out = append(out, target)
 		}
 	}
 	return out, nil
